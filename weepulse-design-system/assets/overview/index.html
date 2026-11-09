@@ -1,0 +1,1469 @@
+<!DOCTYPE html><html lang="pt-BR"> <head><style>html.ds-embedded .site-header{display:none!important}</style><script>if(window.top!==window.self){document.documentElement.classList.add("ds-embedded")}</script><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f5f5f7"><style>
+  .wp-consent {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    z-index: 2147483000;
+    max-width: 380px;
+    padding: 16px 18px;
+    border-radius: 12px;
+    background: #0f1b2d;
+    color: #f3f4f3;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+    font:
+      14px/1.45 system-ui,
+      -apple-system,
+      "Segoe UI",
+      Roboto,
+      sans-serif;
+  }
+  .wp-consent p {
+    margin: 0 0 12px;
+    color: inherit;
+  }
+  .wp-consent a {
+    color: #7ee0c3;
+    text-decoration: underline;
+  }
+  .wp-consent__actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .wp-consent button {
+    cursor: pointer;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font: inherit;
+    font-weight: 600;
+    border: 1px solid transparent;
+  }
+  .wp-consent__accept {
+    background: #7ee0c3;
+    color: #0f1b2d;
+  }
+  .wp-consent__refuse {
+    background: transparent;
+    color: #f3f4f3;
+    border-color: rgba(243, 244, 243, 0.4) !important;
+  }
+  @media (max-width: 480px) {
+    .wp-consent {
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+      max-width: none;
+    }
+  }
+  /* Turnstile: invisível por padrão; quando pede clique, vira uma linha do formulário */
+  .wp-turnstile {
+    display: block;
+    position: static;
+    width: 100%;
+    line-height: 0;
+  }
+  .wp-turnstile--aberto {
+    margin: 0 0 12px;
+    line-height: normal;
+  }
+</style><script data-wp-tracking>
+  (function () {
+    if (window.__wpTracking) return;
+    window.__wpTracking = true;
+
+    var GA4_ID = "G-TGKWD3DE6Y";
+    var ADS_ID = "AW-951723478";
+    // acao de conversao "generate_lead" (id 7183562295): manter este rotulo preserva o historico
+    var ADS_LEAD_LABEL = "u5ugCLfsseEaENbL6MUD";
+    var CONSENT_KEY = "wp_consent"; // "granted" | "denied"
+    var ATTR_KEY = "wp_attr"; // ultima origem conhecida
+    var ATTR_DAYS = 90; // igual a janela de conversao do Google Ads
+    var PREVIEW_REFERRER_HOST = "weepulse.clebersonadao.chatgpt.site";
+    var LEAD_KEY = "wp_lead"; // contexto do envio, ate chegar em /obrigado
+    var FIRED_KEY = "wp_lead_fired";
+    var LEAD_TTL_MS = 30 * 60 * 1000;
+    var FORMS = "#contato, #lead-contato";
+    // IDs dos campos do Lead no Salesforce (Web-to-Lead usa o ID como name)
+    var SF = {
+      utm_source: "00NbL000001oTvt",
+      utm_medium: "00NbL000001oTz7",
+      utm_campaign: "00NbL000001oIaj",
+      gclid: "00NbL000001oklV",
+      interesse: "00NHr00001BsyAY",
+      event_id: "00NbL00000KbAph", // Event_ID__c
+      origem_envio: "00NbL00000KbApi", // Origem_do_envio__c
+    };
+    // ------------------------------------------------------------ utilitarios
+    function lsGet(key) {
+      try {
+        return window.localStorage.getItem(key);
+      } catch {
+        return null;
+      }
+    }
+    function lsSet(key, value) {
+      try {
+        window.localStorage.setItem(key, value);
+      } catch {
+        // storage bloqueado: segue so com cookie
+      }
+    }
+    function lsDel(key) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        // idem
+      }
+    }
+    function readCookie(name) {
+      var parts = ("; " + document.cookie).split("; " + name + "=");
+      if (parts.length < 2) return null;
+      try {
+        return decodeURIComponent(parts.pop().split(";").shift());
+      } catch {
+        return null;
+      }
+    }
+    function writeCookie(name, value, days) {
+      document.cookie =
+        name +
+        "=" +
+        encodeURIComponent(value) +
+        "; Max-Age=" +
+        days * 86400 +
+        "; Path=/; SameSite=Lax" +
+        (window.location.protocol === "https:" ? "; Secure" : "");
+    }
+    function parseJson(raw) {
+      try {
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    }
+    function normalized(value) {
+      return String(value == null ? "" : value).trim().toLowerCase();
+    }
+    // Valor de atribuicao: sem HTML, sem quebra de linha, tamanho limitado.
+    function clean(value) {
+      return String(value == null ? "" : value)
+        .replace(/[<>"'`\r\n\t]/g, "")
+        .trim()
+        .slice(0, 200);
+    }
+    function cleanClickId(value) {
+      var v = clean(value);
+      return /^[A-Za-z0-9_-]{10,200}$/.test(v) ? v : "";
+    }
+
+    // ---------------------------------------------------------- 1. consentimento
+    window.dataLayer = window.dataLayer || [];
+    function gtag() {
+      window.dataLayer.push(arguments);
+    }
+    function consentState(isDenied) {
+      var v = isDenied ? "denied" : "granted";
+      return {
+        ad_storage: v,
+        ad_user_data: v,
+        ad_personalization: v,
+        analytics_storage: v,
+      };
+    }
+    var choice = lsGet(CONSENT_KEY) || readCookie(CONSENT_KEY);
+    var denied = choice === "denied";
+    var defaults = consentState(denied);
+    defaults.functionality_storage = "granted";
+    defaults.security_storage = "granted";
+    gtag("consent", "default", defaults);
+
+    // ------------------------------------------------------- 2. Google tag (gtag.js)
+    (function () {
+      var first = document.getElementsByTagName("script")[0];
+      var tag = document.createElement("script");
+      tag.async = true;
+      tag.src = "https://www.googletagmanager.com/gtag/js?id=" + GA4_ID;
+      first.parentNode.insertBefore(tag, first);
+    })();
+    gtag("js", new Date());
+
+    var onThankYou = /^\/obrigado\/?$/.test(window.location.pathname);
+    var ga4Config = {};
+    // /obrigado e a volta do Web-to-Lead: o referrer e o Salesforce e nao pode virar
+    // a origem da sessao no GA4.
+    if (onThankYou && /salesforce\.com/i.test(document.referrer || "")) {
+      ga4Config.ignore_referrer = true;
+    }
+    gtag("config", GA4_ID, ga4Config);
+    gtag("config", ADS_ID, { allow_enhanced_conversions: true });
+
+    // ------------------------------------------------------------ 3. atribuicao
+    function isPreviewReferral(stored) {
+      return (
+        normalized(stored && stored.utm_source) === PREVIEW_REFERRER_HOST &&
+        normalized(stored && stored.utm_medium) === "referral"
+      );
+    }
+    function scrubPreviewReferral(stored) {
+      if (!isPreviewReferral(stored)) return stored;
+      var cleanStored = {};
+      Object.keys(stored).forEach(function (key) {
+        if (key !== "utm_source" && key !== "utm_medium")
+          cleanStored[key] = stored[key];
+      });
+      var attributionKeys = [
+        "gclid",
+        "gbraid",
+        "wbraid",
+        "utm_campaign",
+        "utm_term",
+        "utm_content",
+      ];
+      var hasAttribution = attributionKeys.some(function (key) {
+        return cleanStored[key];
+      });
+      return hasAttribution ? cleanStored : null;
+    }
+    function validStoredAttr(raw) {
+      var stored = parseJson(raw);
+      if (!stored || !stored.ts) return null;
+      if (Date.now() - stored.ts > ATTR_DAYS * 86400000) return null;
+      return scrubPreviewReferral(stored);
+    }
+    function persistAttrCopy(raw, isLocalStorage) {
+      var stored = parseJson(raw);
+      if (!stored || !stored.ts) return;
+      var scrubbed = validStoredAttr(raw);
+      if (!isPreviewReferral(stored)) return;
+      if (denied) {
+        if (isLocalStorage) lsDel(ATTR_KEY);
+        else writeCookie(ATTR_KEY, "", 0);
+        return;
+      }
+      if (!scrubbed) {
+        if (isLocalStorage) lsDel(ATTR_KEY);
+        else writeCookie(ATTR_KEY, "", 0);
+        return;
+      }
+      if (isLocalStorage) lsSet(ATTR_KEY, JSON.stringify(scrubbed));
+      else writeCookie(ATTR_KEY, JSON.stringify(scrubbed), ATTR_DAYS);
+    }
+    function readAttr() {
+      var localRaw = lsGet(ATTR_KEY);
+      var cookieRaw = readCookie(ATTR_KEY);
+      persistAttrCopy(localRaw, true);
+      persistAttrCopy(cookieRaw, false);
+      var localStored = parseJson(localRaw);
+      if (localStored) {
+        var localValue = validStoredAttr(localRaw);
+        if (!isPreviewReferral(localStored)) return localValue;
+        return localValue || validStoredAttr(cookieRaw);
+      }
+      return validStoredAttr(cookieRaw);
+    }
+    function saveAttr(touch) {
+      if (denied) return; // quem recusou nao tem origem guardada
+      var raw = JSON.stringify(touch);
+      lsSet(ATTR_KEY, raw);
+      writeCookie(ATTR_KEY, raw, ATTR_DAYS);
+    }
+    function externalReferrer() {
+      try {
+        if (!document.referrer) return null;
+        var host = new URL(document.referrer).hostname.toLowerCase();
+        // navegacao interna nao e origem (inclui previews e localhost)
+        if (!host || host === window.location.hostname.toLowerCase())
+          return null;
+        if (host === PREVIEW_REFERRER_HOST) return null;
+        if (/(^|\.)weepulse\.com\.br$/.test(host)) return null;
+        if (/(^|\.)salesforce\.com$/.test(host)) return null; // volta do Web-to-Lead
+        if (/(^|\.)(google|bing|yahoo|duckduckgo)\./.test(host)) {
+          return {
+            utm_source: "organic",
+            utm_medium: "seo",
+            utm_campaign: "search",
+          };
+        }
+        return { utm_source: clean(host), utm_medium: "referral" };
+      } catch {
+        return null;
+      }
+    }
+
+    var currentTouch = (function () {
+      var touch = {};
+      try {
+        var qs = new URLSearchParams(window.location.search);
+        ["gclid", "gbraid", "wbraid"].forEach(function (key) {
+          var v = cleanClickId(qs.get(key));
+          if (v) touch[key] = v;
+        });
+        [
+          "utm_source",
+          "utm_medium",
+          "utm_campaign",
+          "utm_term",
+          "utm_content",
+        ].forEach(function (key) {
+          var v = clean(qs.get(key));
+          if (v) touch[key] = v;
+        });
+      } catch {
+        // sem URLSearchParams: segue sem origem da URL
+      }
+      return touch;
+    })();
+
+    var storedTouch = readAttr();
+    if (Object.keys(currentTouch).length) {
+      currentTouch.ts = Date.now();
+      currentTouch.lp = window.location.pathname;
+      saveAttr(currentTouch);
+    } else if (!storedTouch) {
+      var ref = externalReferrer();
+      if (ref) {
+        ref.ts = Date.now();
+        ref.lp = window.location.pathname;
+        saveAttr(ref);
+      }
+    }
+
+    function resolveAttribution() {
+      var stored = readAttr() || {};
+      var now = Object.keys(currentTouch).length ? currentTouch : {};
+      var pick = function (key) {
+        return now[key] || stored[key] || "";
+      };
+      var source = pick("utm_source");
+      var medium = pick("utm_medium");
+      if (!source && (pick("gclid") || pick("gbraid") || pick("wbraid"))) {
+        source = "google";
+        medium = medium || "cpc";
+      }
+      if (!source) {
+        var ref = externalReferrer();
+        source = ref ? ref.utm_source : "direct";
+        medium = ref ? ref.utm_medium : "none";
+      }
+      return {
+        utm_source: source,
+        utm_medium: medium,
+        utm_campaign: pick("utm_campaign"),
+        // "nenhum" e a convencao que o Salesforce ja conhece para "sem gclid"
+        gclid: pick("gclid") || "nenhum",
+        gbraid: pick("gbraid"),
+        wbraid: pick("wbraid"),
+      };
+    }
+
+    // ------------------------------------------------ 4. lead: submit -> /obrigado
+    // Hash SHA-256 (hex) calculado enquanto o usuario digita, para o submit ficar
+    // sincrono. So o hash vai para o storage: nenhum dado pessoal em claro.
+    var hashes = Object.create(null);
+    function warmHash(value) {
+      if (!value || hashes[value]) return;
+      try {
+        if (!window.crypto || !window.crypto.subtle || !window.TextEncoder)
+          return;
+        window.crypto.subtle
+          .digest("SHA-256", new TextEncoder().encode(value))
+          .then(function (buffer) {
+            var bytes = new Uint8Array(buffer);
+            var hex = "";
+            for (var i = 0; i < bytes.length; i++) {
+              hex += bytes[i].toString(16).padStart(2, "0");
+            }
+            hashes[value] = hex;
+          })
+          .catch(function () {
+            // sem hash o lead ainda converte, so com casamento mais fraco
+          });
+      } catch {
+        // idem
+      }
+    }
+    function normEmail(value) {
+      var v = String(value == null ? "" : value)
+        .trim()
+        .toLowerCase();
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? v : "";
+    }
+    // E.164, que e o formato que o Google pede antes do hash
+    function normPhone(value) {
+      var d = String(value == null ? "" : value).replace(/\D/g, "");
+      if (d.length === 10 || d.length === 11) return "+55" + d;
+      if ((d.length === 12 || d.length === 13) && d.indexOf("55") === 0)
+        return "+" + d;
+      return "";
+    }
+    function formOf(target) {
+      return target && target.closest ? target.closest(FORMS) : null;
+    }
+    function onFieldActivity(event) {
+      var form = formOf(event.target);
+      if (!form) return;
+      var email = form.querySelector('input[type="email"]');
+      var phone = form.querySelector('input[name="mobile"], input[type="tel"]');
+      if (email) warmHash(normEmail(email.value));
+      if (phone) warmHash(normPhone(phone.value));
+    }
+    // captura no document: o form do data.js e injetado depois do load
+    document.addEventListener("input", onFieldActivity, true);
+    document.addEventListener("blur", onFieldActivity, true);
+
+    function newEventId() {
+      try {
+        if (window.crypto && window.crypto.randomUUID)
+          return window.crypto.randomUUID();
+      } catch {
+        // cai no fallback
+      }
+      return (
+        "wp-" +
+        Date.now().toString(36) +
+        "-" +
+        Math.random().toString(36).slice(2, 10)
+      );
+    }
+    function formLocation(form) {
+      var path = window.location.pathname;
+      if (form.closest("#lead-modal")) return "blog_modal";
+      if (/^\/blog(\/|$)/.test(path)) return "blog";
+      if (/^\/nfe-ibs-cbs/.test(path)) return "lp_nfe";
+      // a LP de Protheus mora dentro de /consultoria-totvs/: a regra dela vem antes da generica
+      if (/^\/consultoria-totvs\/protheus/.test(path))
+        return "lp_consultoria_protheus";
+      if (/^\/consultoria-totvs/.test(path)) return "lp_consultoria_totvs";
+      if (/^\/tracao(\/|$)/.test(path)) return "tracao";
+      if (path === "/" || path === "") return "home";
+      return "lp";
+    }
+
+    // ------------------------------------------- 5. envio pelo porteiro (lead-gateway)
+    // O formulario NAO posta mais direto no Web-to-Lead do Salesforce (endpoint publico, que
+    // robos chamam sem abrir o site). O envio vai para /_c/lead (rewrite da Vercel para o
+    // lead-gateway), que valida (token assinado, Turnstile, limites) e so entao cria o Lead.
+    // Enquanto o Web-to-Lead existir na org ele fica como REDE DE SEGURANCA: se o porteiro
+    // estiver fora do ar o formulario faz o envio nativo e nenhum lead se perde. Recusa do
+    // porteiro (403/422/429) NAO cai no fallback.
+    var GATEWAY = "/_c";
+    var SITE_ID = "weepulse";
+    var TURNSTILE_SITE_KEY = "0x4AAAAAAE6e2bf3YCn6KGpb"; // chave publica do widget
+    var gate = { token: "", tokenAt: 0, minAgeMs: 3000, turnstile: null };
+
+    function sleep(ms) {
+      return new Promise(function (resolve) {
+        setTimeout(resolve, ms);
+      });
+    }
+    function waitFor(check, timeoutMs) {
+      var started = Date.now();
+      return new Promise(function (resolve) {
+        (function poll() {
+          var value = check();
+          if (value) return resolve(value);
+          if (Date.now() - started > timeoutMs) return resolve(null);
+          setTimeout(poll, 150);
+        })();
+      });
+    }
+    function fetchTokenOnce() {
+      return fetch(GATEWAY + "/t?site=" + SITE_ID, {
+        credentials: "same-origin",
+      })
+        .then(function (response) {
+          return response.ok ? response.json() : null;
+        })
+        .then(function (data) {
+          if (data && data.token) {
+            gate.token = data.token;
+            gate.tokenAt = Date.now();
+            gate.minAgeMs = data.min_age_ms || gate.minAgeMs;
+            return true;
+          }
+          return false;
+        })
+        .catch(function () {
+          return false; // rede: quem chamou decide se insiste
+        });
+    }
+    // tres tentativas (0 s, 0,8 s e 2,5 s): uma oscilacao de rede nao pode virar lead perdido
+    function fetchToken() {
+      return fetchTokenOnce().then(function (ok) {
+        if (ok) return true;
+        return sleep(800)
+          .then(fetchTokenOnce)
+          .then(function (ok2) {
+            if (ok2) return true;
+            return sleep(2500).then(fetchTokenOnce);
+          });
+      });
+    }
+    function loadTurnstile() {
+      if (gate.turnstile) return gate.turnstile;
+      gate.turnstile = new Promise(function (resolve) {
+        window.__wpTurnstileReady = function () {
+          resolve(window.turnstile || null);
+        };
+        var tag = document.createElement("script");
+        tag.async = true;
+        tag.src =
+          "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=__wpTurnstileReady";
+        tag.onerror = function () {
+          resolve(null);
+        };
+        document.head.appendChild(tag);
+      });
+      return gate.turnstile;
+    }
+    // Chamado no primeiro foco do formulario: token, armadilha para robo e widget.
+    function prepareForm(form) {
+      if (form.__wp) return;
+      form.__wp = { challenge: "", widget: null };
+
+      var trap = document.createElement("input");
+      trap.type = "text";
+      trap.name = "website";
+      trap.tabIndex = -1;
+      trap.autocomplete = "off";
+      trap.setAttribute("aria-hidden", "true");
+      trap.style.cssText =
+        "position:absolute;left:-9999px;width:1px;height:1px;opacity:0";
+      form.appendChild(trap);
+
+      // O widget ocupa uma linha propria ANTES da linha do botao (filho direto do form), nunca
+      // dentro do wrapper do botao: na home legada o botao e absoluto num wrapper de 43px, e o
+      // widget, quando precisa aparecer, ficava por baixo dele e ninguem conseguia clicar.
+      var holder = document.createElement("div");
+      holder.className = "wp-turnstile";
+      form.__wp.holder = holder;
+      var button = form.querySelector('[type="submit"]');
+      var row = button;
+      while (row && row.parentNode && row.parentNode !== form)
+        row = row.parentNode;
+      if (row && row.parentNode === form) form.insertBefore(holder, row);
+      else form.appendChild(holder);
+
+      if (!gate.token) fetchToken();
+      loadTurnstile().then(function (turnstile) {
+        if (!turnstile) return;
+        try {
+          form.__wp.widget = turnstile.render(holder, {
+            sitekey: TURNSTILE_SITE_KEY,
+            // invisivel para quem nao levanta suspeita; so aparece se precisar de interacao
+            appearance: "interaction-only",
+            callback: function (value) {
+              form.__wp.challenge = value;
+            },
+            "expired-callback": function () {
+              form.__wp.challenge = "";
+            },
+            // so quando o desafio precisa de clique: o widget ganha espaco proprio na linha
+            "before-interactive-callback": function () {
+              holder.classList.add("wp-turnstile--aberto");
+            },
+            "after-interactive-callback": function () {
+              holder.classList.remove("wp-turnstile--aberto");
+            },
+          });
+        } catch {
+          // widget nao renderizou: o envio cai no fallback
+        }
+      });
+    }
+    document.addEventListener(
+      "focusin",
+      function (event) {
+        var form =
+          formOf(event.target) ||
+          (event.target && event.target.closest
+            ? event.target.closest("[data-wp-whatsapp]")
+            : null);
+        if (form) prepareForm(form);
+      },
+      true,
+    );
+
+    function setBusy(form, busy) {
+      var button = form.querySelector('[type="submit"]');
+      if (!button) return;
+      var label = form.querySelector(".formSubmit__label");
+      if (busy) {
+        if (form.__wpLabel == null) {
+          form.__wpLabel = label
+            ? label.textContent
+            : button.value || button.textContent;
+        }
+        button.disabled = true;
+      } else {
+        button.disabled = false;
+      }
+      var text = busy ? "Enviando…" : form.__wpLabel;
+      if (label) label.textContent = text;
+      else if (button.tagName === "INPUT") button.value = text;
+      else button.textContent = text;
+    }
+    function showMessage(form, text) {
+      var box = form.querySelector(".wp-form-msg");
+      if (!box) {
+        box = document.createElement("p");
+        box.className = "wp-form-msg";
+        box.setAttribute("role", "alert");
+        box.style.cssText =
+          "margin:10px 0;font-size:14px;line-height:1.4;color:#b42318";
+        // Antes da LINHA do botao (o filho do form que o contem), nunca dentro do wrapper: na home e
+        // nas paginas legadas o wrapper .formSubmit tem altura fixa e o botao absoluto por cima, e a
+        // mensagem inserida ali dentro ficava escondida atras do botao (29/09/2026). Mesma regra do
+        // widget do Turnstile.
+        var button = form.querySelector('[type="submit"]');
+        var row = button;
+        while (row && row.parentNode && row.parentNode !== form)
+          row = row.parentNode;
+        if (row && row.parentNode === form) form.insertBefore(box, row);
+        else form.appendChild(box);
+      }
+      box.textContent = text || "";
+      box.style.display = text ? "block" : "none";
+    }
+    var FIELD_MESSAGES = {
+      first_name: "Informe o seu nome.",
+      last_name: "Informe o seu sobrenome.",
+      company: "Informe a sua empresa.",
+      message: "Conte em poucas palavras como podemos ajudar.",
+      mobile: "Informe um celular válido, com DDD.",
+      email: "Informe um e-mail válido.",
+    };
+    function fieldValue(form, name) {
+      // grupo de rádios: vale o marcado (sem marcar, vazio), nunca o valor do primeiro rádio
+      if (form.querySelector('input[type="radio"][name="' + name + '"]')) {
+        var marcado = form.querySelector(
+          'input[type="radio"][name="' + name + '"]:checked',
+        );
+        return marcado ? marcado.value : "";
+      }
+      var field =
+        form.querySelector('textarea[name="' + name + '"]') ||
+        form.querySelector('select[name="' + name + '"]') ||
+        form.querySelector('input[name="' + name + '"]');
+      return field ? field.value : "";
+    }
+    function stashLead(lead) {
+      var raw = JSON.stringify(lead);
+      try {
+        window.sessionStorage.setItem(LEAD_KEY, raw);
+        window.sessionStorage.removeItem(FIRED_KEY);
+      } catch {
+        // sem sessionStorage: o localStorage abaixo cobre
+      }
+      lsSet(LEAD_KEY, raw);
+      lsDel(FIRED_KEY);
+    }
+    // "Esse envio ja chegou?": a resposta do POST pode se perder no caminho (proxy corporativo, rede ruim) com
+    // o lead JA aceito pelo porteiro. Antes de reenviar ou de cair no Web-to-Lead (que criaria um duplicado e
+    // um e-mail de erro do Salesforce), perguntamos. Caso real: lead pago de 18/09/2026.
+    // Resolve { known: true, repetido } quando o porteiro ja aceitou (repetido so vem true de porteiro novo;
+    // sem o campo vale false, como antes) ou null quando nao aceitou ou nao respondeu.
+    function alreadyAccepted(eventId) {
+      var controller = new AbortController();
+      var timer = setTimeout(function () {
+        controller.abort();
+      }, 5000);
+      return fetch(
+        GATEWAY + "/s?site=" + SITE_ID + "&e=" + encodeURIComponent(eventId),
+        { credentials: "same-origin", signal: controller.signal },
+      )
+        .then(function (response) {
+          return response.ok ? response.json() : null;
+        })
+        .then(function (data) {
+          clearTimeout(timer);
+          if (!data || !data.known) return null;
+          return { known: true, repetido: data.repetido === true };
+        })
+        .catch(function () {
+          clearTimeout(timer);
+          return null;
+        });
+    }
+    // Resposta do POST que o porteiro nao conseguiu entregar, montada a partir do "ja chegou?".
+    function acceptedResult(eventId, seen) {
+      var data = { ok: true, event_id: eventId };
+      if (seen.repetido) data.repetido = true;
+      return { status: 200, data: data };
+    }
+    function lostResponse(result) {
+      return result.status === 0 || result.status >= 500;
+    }
+    function postLead(payload) {
+      var controller = new AbortController();
+      var timer = setTimeout(function () {
+        controller.abort();
+      }, 10000);
+      return fetch(GATEWAY + "/lead", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      })
+        .then(function (response) {
+          clearTimeout(timer);
+          return response
+            .json()
+            .catch(function () {
+              return {};
+            })
+            .then(function (data) {
+              return { status: response.status, data: data };
+            });
+        })
+        .catch(function () {
+          clearTimeout(timer);
+          return { status: 0, data: {} }; // rede/timeout
+        });
+    }
+    // O lead NUNCA se perde (decisao do Caio, 29/09/2026: "esse formulario tem que ser enviado de uma
+    // forma ou de outra; nunca pode dar mensagem de erro"). O Web-to-Lead deixou de ser rede de seguranca
+    // (endereco publico inundado por robos desde 22/09). No lugar dele: quando o porteiro nao responde,
+    // o envio fica GUARDADO no navegador e o site reenvia sozinho, com o mesmo event_id (o porteiro nao
+    // duplica): a cada 15 s nesta pagina e na abertura de cada pagina seguinte, por ate 24 h. Sem resposta
+    // do widget do Turnstile o envio vai assim mesmo e o porteiro poe o lead em quarentena. Cada caso
+    // gera um evento no GA4 (wp_lead_sem_widget, wp_lead_falha, wp_lead_recuperado) para ser medido.
+    var PENDING_KEY = "wp_lead_pendente";
+    var PENDING_TTL_MS = 24 * 60 * 60 * 1000;
+    function leadEvent(name, params) {
+      try {
+        var p = params || {};
+        p.send_to = GA4_ID;
+        gtag("event", name, p);
+      } catch {
+        // medicao nunca atrapalha o envio
+      }
+    }
+    // Contato repetido: o porteiro respondeu repetido: true (a mesma pessoa ja tinha enviado um contato nos
+    // ultimos dias). O lead segue o fluxo normal (WhatsApp ou /obrigado), mas NAO ha segunda conversao: nem
+    // generate_lead no GA4, nem a conversao do Ads, nem dataLayer/wp:lead. So este evento, para medir a frequencia.
+    function repetidoEvent(lead) {
+      leadEvent("wp_lead_repetido", {
+        canal: lead.channel === "whatsapp" ? "whatsapp" : "form",
+        event_id: lead.event_id,
+        form_id: lead.form_id,
+        form_location: lead.form_location,
+        lead_page_path: lead.page_path,
+        interesse: lead.interesse,
+      });
+    }
+    function readPending() {
+      var entry = parseJson(lsGet(PENDING_KEY));
+      if (!entry || !entry.payload || !entry.lead) return null;
+      if (Date.now() - (entry.ts || 0) > PENDING_TTL_MS) {
+        lsDel(PENDING_KEY);
+        return null;
+      }
+      return entry;
+    }
+    // Uma tentativa de entregar o envio guardado: token novo e sem exigir o widget.
+    // Resolve true (entregue), false (tentar de novo depois) ou null (recusa definitiva: campos invalidos).
+    function deliverPending(entry) {
+      return fetchTokenOnce().then(function (ok) {
+        if (!ok) return false;
+        var payload = entry.payload;
+        payload.token = gate.token;
+        payload.turnstile = "";
+        gate.token = ""; // token e de uso unico
+        return postLead(payload).then(function (result) {
+          if (lostResponse(result)) {
+            return alreadyAccepted(payload.event_id).then(function (seen) {
+              if (!seen) return false;
+              // contato repetido: mesmo caminho da resposta normal, sem a conversao
+              if (seen.repetido) entry.lead.repetido = true;
+              return true;
+            });
+          }
+          if (result.status === 200 && result.data.ok) {
+            // contato repetido: o lead guardado segue para o fireLead sem a conversao
+            if (result.data.repetido === true) entry.lead.repetido = true;
+            return true;
+          }
+          if (result.status === 422) return null;
+          return false; // 403 (porteiro antigo ainda exigindo o widget) ou 429: mais tarde
+        });
+      });
+    }
+    function deferLead(form, opts, entry, motivo) {
+      lsSet(PENDING_KEY, JSON.stringify(entry));
+      leadEvent("wp_lead_falha", { motivo: motivo, canal: entry.channel });
+      // quem clicou no WhatsApp nao fica preso: a conversa abre e o reenvio fica para a proxima visita
+      if (entry.channel === "whatsapp") return whatsappDone(opts, false);
+      setBusy(form, false);
+      showMessage(
+        form,
+        "Estamos com dificuldade para enviar. Vamos continuar tentando por aqui; se preferir, fale com a gente pelo WhatsApp.",
+      );
+      var tries = 0;
+      (function again() {
+        if (tries++ >= 8) return;
+        window.setTimeout(function () {
+          var pending = readPending();
+          if (!pending || pending.lead.event_id !== entry.lead.event_id) return;
+          deliverPending(pending).then(function (ok) {
+            if (ok === true) {
+              lsDel(PENDING_KEY);
+              leadEvent("wp_lead_recuperado", { onde: "mesma_pagina" });
+              stashLead(pending.lead);
+              window.location.assign("/obrigado/");
+            } else if (ok === false) again();
+            else lsDel(PENDING_KEY);
+          });
+        }, 15000);
+      })();
+    }
+
+    // Modal "Falar pelo WhatsApp" das LPs: sem /obrigado. A conversao dispara aqui e `opts.onDone`
+    // leva a pessoa para o WhatsApp, com lead ({ lead: true }) ou, se o porteiro nao aceitar por algo
+    // que ela nao conserta no modal, sem lead ({ lead: false }). A conversa nunca e perdida.
+    function whatsappDone(opts, withLead) {
+      if (opts.onDone) opts.onDone({ lead: !!withLead });
+    }
+
+    async function sendLead(form, opts) {
+      opts = opts || {};
+      var whatsapp = opts.channel === "whatsapp";
+      showMessage(form, "");
+      setBusy(form, true);
+      prepareForm(form);
+
+      var attr = resolveAttribution();
+      var email = normEmail(fieldValue(form, "email"));
+      var phone = normPhone(fieldValue(form, "mobile"));
+      var lead = {
+        event_id: newEventId(),
+        ts: Date.now(),
+        via: "gateway",
+        form_id: form.id,
+        form_location: formLocation(form),
+        page_path: window.location.pathname,
+        interesse: clean(fieldValue(form, SF.interesse)),
+      };
+      if (hashes[email]) lead.sha256_email_address = hashes[email];
+      if (hashes[phone]) lead.sha256_phone_number = hashes[phone];
+      if (whatsapp) {
+        lead.channel = "whatsapp";
+        lead.form_id = "lp-whatsapp";
+        lead.form_location = formLocation(form) + "_whatsapp";
+      }
+      var journey = "";
+      try {
+        journey = JSON.parse(localStorage.getItem("user_journey") || "[]").join(
+          " > ",
+        );
+      } catch {
+        // jornada e opcional
+      }
+      var trap = form.querySelector('input[name="website"]');
+      var payload = {
+        site: SITE_ID,
+        token: "",
+        turnstile: "",
+        hp: trap ? trap.value : "",
+        event_id: lead.event_id,
+        fields: {
+          first_name: fieldValue(form, "first_name"),
+          last_name: fieldValue(form, "last_name"),
+          email: fieldValue(form, "email"),
+          mobile: fieldValue(form, "mobile"),
+          company: fieldValue(form, "company"),
+          interesse: fieldValue(form, SF.interesse),
+          pref: fieldValue(form, "00NbL000004f1Nd"),
+          message: fieldValue(form, "00NHr00000ueQ8U"),
+        },
+        attribution: attr,
+        context: {
+          form_id: lead.form_id,
+          form_location: lead.form_location,
+          page_path: lead.page_path,
+          user_journey: journey,
+        },
+        consent: { ad: !denied, analytics: !denied },
+      };
+      if (whatsapp) payload.channel = "whatsapp";
+      // tudo que o reenvio automatico precisa, sem token nem widget (sao de uso unico)
+      var entry = {
+        ts: Date.now(),
+        channel: whatsapp ? "whatsapp" : "form",
+        lead: lead,
+        payload: payload,
+      };
+
+      if (!gate.token || Date.now() - gate.tokenAt > 110 * 60 * 1000)
+        await fetchToken();
+      // porteiro fora do alcance mesmo depois de tres tentativas: guarda e reenvia sozinho
+      if (!gate.token) return deferLead(form, opts, entry, "sem_token");
+
+      // quem clicou para abrir o WhatsApp espera menos do que quem enviou um formulario
+      var challenge = await waitFor(
+        function () {
+          return form.__wp.challenge;
+        },
+        whatsapp ? 6000 : 12000,
+      );
+      // a Cloudflare pediu um clique (caso da SDR em 29/09): a caixa ganha aviso e a espera cresce
+      if (
+        !challenge &&
+        form.__wp.holder &&
+        form.__wp.holder.classList.contains("wp-turnstile--aberto")
+      ) {
+        showMessage(
+          form,
+          "Confirme na caixa acima que você não é um robô. O envio continua em seguida.",
+        );
+        challenge = await waitFor(
+          function () {
+            return form.__wp.challenge;
+          },
+          whatsapp ? 20000 : 48000,
+        );
+        showMessage(form, "");
+      }
+      // sem resposta do widget o envio vai assim mesmo: o porteiro poe em quarentena em vez de recusar
+      if (!challenge) leadEvent("wp_lead_sem_widget", { canal: entry.channel });
+      payload.token = gate.token;
+      payload.turnstile = challenge || "";
+
+      // quem preenche por autofill e clica na hora nao pode parecer robo: espera a idade minima
+      var missing = gate.minAgeMs + 300 - (Date.now() - gate.tokenAt);
+      if (missing > 0) await sleep(missing);
+
+      var result = await postLead(payload);
+      if (lostResponse(result)) {
+        var seen = await alreadyAccepted(lead.event_id);
+        if (seen) result = acceptedResult(lead.event_id, seen);
+        else {
+          await sleep(800);
+          result = await postLead(payload); // mesmo event_id: o porteiro nao duplica
+          if (lostResponse(result)) {
+            seen = await alreadyAccepted(lead.event_id);
+            if (seen) result = acceptedResult(lead.event_id, seen);
+          }
+        }
+      }
+      // resposta do widget recusada (expirou no caminho, ou porteiro que ainda a exige): manda sem ela
+      if (result.status === 403 && payload.turnstile) {
+        var code = (result.data && result.data.code) || "";
+        if (code.indexOf("turnstile") === 0) {
+          payload.turnstile = "";
+          leadEvent("wp_lead_sem_widget", { canal: entry.channel, motivo: code });
+          result = await postLead(payload);
+        }
+      }
+      // token e resposta do widget sao de uso unico: o proximo envio precisa de novos
+      gate.token = "";
+      form.__wp.challenge = "";
+      try {
+        if (window.turnstile && form.__wp.widget != null)
+          window.turnstile.reset(form.__wp.widget);
+      } catch {
+        // idem
+      }
+      fetchToken();
+
+      if (result.status === 200 && result.data.ok) {
+        var userData = result.data.user_data || {};
+        if (userData.sha256_email_address)
+          lead.sha256_email_address = userData.sha256_email_address;
+        if (userData.sha256_phone_number)
+          lead.sha256_phone_number = userData.sha256_phone_number;
+        lead.event_id = result.data.event_id || lead.event_id;
+        // contato repetido: segue o fluxo normal (conversa ou /obrigado), mas o fireLead nao converte
+        if (result.data.repetido === true) lead.repetido = true;
+        if (whatsapp) {
+          try {
+            localStorage.removeItem("user_journey");
+          } catch {
+            // jornada e opcional
+          }
+          fireLead(lead, function () {
+            whatsappDone(opts, true);
+          });
+          return;
+        }
+        stashLead(lead);
+        try {
+          localStorage.removeItem("user_journey");
+        } catch {
+          // idem
+        }
+        window.location.assign("/obrigado/");
+        return;
+      }
+      // So a recusa por campo invalido (422) volta para a pessoa corrigir. Qualquer outra coisa (porteiro
+      // fora, 403, 429) NAO e erro para quem enviou: o lead fica guardado e o site reenvia sozinho.
+      if (result.status !== 422)
+        return deferLead(
+          form,
+          opts,
+          entry,
+          lostResponse(result) ? "porteiro_indisponivel" : "porteiro_" + result.status,
+        );
+
+      if (whatsapp) {
+        // Campo que a pessoa conserta no modal (nome, celular, empresa): mostra o erro. Porteiro ainda sem
+        // o canal (pedindo e-mail/mensagem) segue para a conversa.
+        var invalid = Object.keys(
+          (result.data && result.data.fields) || {},
+        ).filter(function (key) {
+          return key !== "email" && key !== "message";
+        });
+        if (!invalid.length) return whatsappDone(opts, false);
+        setBusy(form, false);
+        if (opts.onInvalid) opts.onInvalid(invalid);
+        showMessage(
+          form,
+          FIELD_MESSAGES[invalid[0]] || "Confira os campos e tente de novo.",
+        );
+        return;
+      }
+
+      setBusy(form, false);
+      var fields = result.data.fields || {};
+      var first = Object.keys(fields)[0];
+      showMessage(
+        form,
+        fields.email === "email_corporativo"
+          ? "Use o seu e-mail corporativo, por favor."
+          : FIELD_MESSAGES[first] || "Confira os campos e tente de novo.",
+      );
+    }
+
+    document.addEventListener(
+      "submit",
+      function (event) {
+        var form = formOf(event.target);
+        if (!form) return;
+        // o envio e nosso: o handler legado do data.js (no proprio form) nao roda
+        event.preventDefault();
+        event.stopPropagation();
+        if (form.__wpSending) return;
+        form.__wpSending = true;
+        sendLead(form)
+          .catch(function () {
+            setBusy(form, false);
+            showMessage(
+              form,
+              "Não foi possível enviar agora. Tente de novo ou fale com a gente pelo WhatsApp.",
+            );
+          })
+          .then(function () {
+            form.__wpSending = false;
+          });
+      },
+      true,
+    );
+
+    // Avisa o porteiro que o site tratou o lead (so para conferencia).
+    function confirmBeacon(lead) {
+      if (lead.via === "gateway" && navigator.sendBeacon) {
+        try {
+          navigator.sendBeacon(
+            GATEWAY + "/confirm",
+            new Blob([JSON.stringify({ event_id: lead.event_id })], {
+              type: "application/json",
+            }),
+          );
+        } catch {
+          // confirmacao e so para conferencia
+        }
+      }
+    }
+
+    // Dispara a conversao de um lead confirmado, UMA vez por event_id. Usado em /obrigado e no modal
+    // de WhatsApp das LPs (que leva a pessoa para o WhatsApp e nunca passa por /obrigado). `done`,
+    // quando informado, e chamado assim que o hit do Google Ads saiu (ou em 1,2 s, o que vier
+    // primeiro) para a pagina so navegar para fora depois disso.
+    function fireLead(lead, done) {
+      var finished = false;
+      function finish() {
+        if (finished) return;
+        finished = true;
+        if (done) done();
+      }
+      try {
+        var already = null;
+        try {
+          already = window.sessionStorage.getItem(FIRED_KEY);
+        } catch {
+          // segue com o localStorage
+        }
+        if ((already || lsGet(FIRED_KEY)) === lead.event_id) return finish();
+        try {
+          window.sessionStorage.setItem(FIRED_KEY, lead.event_id);
+          window.sessionStorage.removeItem(LEAD_KEY);
+        } catch {
+          // idem
+        }
+        lsSet(FIRED_KEY, lead.event_id);
+        lsDel(LEAD_KEY);
+
+        // contato repetido: confirma ao porteiro e mede, sem user_data, generate_lead, conversao nem wp:lead
+        if (lead.repetido) {
+          confirmBeacon(lead);
+          repetidoEvent(lead);
+          return finish();
+        }
+
+        var userData = {};
+        if (lead.sha256_email_address)
+          userData.sha256_email_address = lead.sha256_email_address;
+        if (lead.sha256_phone_number)
+          userData.sha256_phone_number = lead.sha256_phone_number;
+
+        var whatsapp = lead.channel === "whatsapp";
+        var leadInfo = {
+          form_id: lead.form_id,
+          form_location: lead.form_location,
+          page_path: lead.page_path,
+          interesse: lead.interesse,
+          lead_tipo: whatsapp ? "Lead de WhatsApp" : "Lead de Formulário",
+        };
+
+        // conversoes otimizadas: so hash, e antes dos eventos
+        if (userData.sha256_email_address || userData.sha256_phone_number) {
+          gtag("set", "user_data", userData);
+        }
+        confirmBeacon(lead);
+        var params = {
+          event_id: lead.event_id,
+          lead_via: lead.via || "web-to-lead",
+          form_id: leadInfo.form_id,
+          form_location: leadInfo.form_location,
+          lead_page_path: leadInfo.page_path,
+          interesse: leadInfo.interesse,
+          lead_tipo: leadInfo.lead_tipo,
+        };
+        if (whatsapp) params.method = "whatsapp";
+        gtag("event", "generate_lead", params);
+        var conversion = {
+          send_to: ADS_ID + "/" + ADS_LEAD_LABEL,
+          transaction_id: lead.event_id,
+        };
+        if (done) conversion.event_callback = finish;
+        gtag("event", "conversion", conversion);
+
+        // Registro neutro do lead confirmado: outros pixels (OpenAI, Meta, LinkedIn)
+        // devem escutar isto em vez de observar o formulario por conta propria.
+        var detail = {
+          event_id: lead.event_id,
+          lead: leadInfo,
+          user_data: userData,
+        };
+        window.dataLayer.push({
+          event: "generate_lead",
+          event_id: detail.event_id,
+          lead: leadInfo,
+          user_data: userData,
+        });
+        try {
+          window.dispatchEvent(new CustomEvent("wp:lead", { detail: detail }));
+        } catch {
+          // navegador sem CustomEvent: o dataLayer acima ja registrou
+        }
+      } catch {
+        // medicao nunca pode prender a pessoa na pagina
+      }
+      if (done) window.setTimeout(finish, 1200);
+    }
+
+    // API do modal "Falar pelo WhatsApp" das LPs (a LP ja validou os campos). `onDone({ lead })` abre o
+    // WhatsApp; `onInvalid(campos)` devolve o botao ao modal quando ha campo para corrigir.
+    window.WeePulseTracking = {
+      submitWhatsapp: function (form, opts) {
+        if (!form || form.__wpSending) return;
+        opts = opts || {};
+        form.__wpSending = true;
+        sendLead(form, {
+          channel: "whatsapp",
+          onDone: opts.onDone,
+          onInvalid: opts.onInvalid,
+        })
+          .catch(function () {
+            // erro inesperado nao pode custar a conversa
+            if (opts.onDone) opts.onDone({ lead: false });
+          })
+          .then(function () {
+            form.__wpSending = false;
+          });
+      },
+    };
+
+    // Envio guardado numa visita anterior (porteiro fora do alcance na hora): tenta entregar agora, em
+    // silencio. Entregue, a conversao dispara aqui mesmo, uma vez, com o event_id original.
+    (function retryPendingOnLoad() {
+      var pending = readPending();
+      if (!pending) return;
+      deliverPending(pending).then(function (ok) {
+        if (ok === true) {
+          lsDel(PENDING_KEY);
+          leadEvent("wp_lead_recuperado", { onde: "pagina_seguinte" });
+          fireLead(pending.lead);
+        } else if (ok === null) lsDel(PENDING_KEY);
+      });
+    })();
+
+    // /obrigado e o retURL do Web-to-Lead: e a confirmacao real da conversao.
+    // Visita direta ou refresh NAO disparam: so existe conversao se houve envio.
+    if (onThankYou) {
+      try {
+        var stashed = null;
+        var fired = null;
+        try {
+          stashed = parseJson(window.sessionStorage.getItem(LEAD_KEY));
+          fired = window.sessionStorage.getItem(FIRED_KEY);
+        } catch {
+          // segue com o localStorage
+        }
+        stashed = stashed || parseJson(lsGet(LEAD_KEY));
+        fired = fired || lsGet(FIRED_KEY);
+
+        var fresh =
+          stashed &&
+          stashed.event_id &&
+          Date.now() - (stashed.ts || 0) < LEAD_TTL_MS;
+        if (fresh && fired !== stashed.event_id) fireLead(stashed);
+      } catch {
+        // idem
+      }
+    }
+
+    // ------------------------------------------------------- banner de cookies
+    function applyChoice(value) {
+      denied = value === "denied";
+      lsSet(CONSENT_KEY, value);
+      writeCookie(CONSENT_KEY, value, 180);
+      gtag("consent", "update", consentState(denied));
+      if (denied) {
+        lsDel(ATTR_KEY);
+        writeCookie(ATTR_KEY, "", 0);
+      }
+    }
+    function showBanner() {
+      if (document.getElementById("wp-consent")) return;
+      var box = document.createElement("div");
+      box.id = "wp-consent";
+      box.className = "wp-consent";
+      box.setAttribute("role", "dialog");
+      box.setAttribute("aria-live", "polite");
+      box.setAttribute("aria-label", "Aviso de cookies");
+      box.innerHTML =
+        "<p>Usamos cookies para medir o uso do site e melhorar nossos anúncios. " +
+        'Você pode recusar a qualquer momento. <a href="https://weepulse.com.br/politicas/">Saiba mais</a>.</p>' +
+        '<div class="wp-consent__actions">' +
+        '<button type="button" class="wp-consent__refuse" data-wp-consent="denied">Recusar</button>' +
+        '<button type="button" class="wp-consent__accept" data-wp-consent="granted">Ok, entendi</button>' +
+        "</div>";
+      box.addEventListener("click", function (event) {
+        var button = event.target.closest
+          ? event.target.closest("[data-wp-consent]")
+          : null;
+        if (!button) return;
+        applyChoice(button.getAttribute("data-wp-consent"));
+        box.parentNode.removeChild(box);
+      });
+      document.body.appendChild(box);
+    }
+    // qualquer link/botao com data-wp-consent-open reabre a escolha (ex.: rodape)
+    document.addEventListener("click", function (event) {
+      var opener = event.target.closest
+        ? event.target.closest("[data-wp-consent-open]")
+        : null;
+      if (!opener) return;
+      event.preventDefault();
+      showBanner();
+    });
+    window.wpConsent = { open: showBanner };
+
+    if (!choice) {
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", showBanner);
+      } else {
+        showBanner();
+      }
+    }
+  })();
+</script><script>(function(){const PIXEL_ID = "TL3wARVQKDHDXAv8fvdwsm";
+
+  /* global PIXEL_ID */
+  (function () {
+    // loader oficial do SDK (snippet da doc)
+    (function (w, d, s, u) {
+      if (w.oaiq) return;
+      var q = function () {
+        q.q.push(arguments);
+      };
+      q.q = [];
+      w.oaiq = q;
+      var js = d.createElement(s);
+      js.async = true;
+      js.src = u;
+      var f = d.getElementsByTagName(s)[0];
+      f.parentNode.insertBefore(js, f);
+    })(window, document, "script", "https://bzrcdn.openai.com/sdk/oaiq.min.js");
+
+    // guarda contra init/listeners duplicados
+    if (window.__wpOaiPixel) return;
+    window.__wpOaiPixel = true;
+
+    // Debug sob demanda: ?oaiq_debug=1 liga e fica ligado (sobrevive ao redirect do
+    // Salesforce ate o /obrigado); ?oaiq_debug=0 desliga. Fora isso, ninguem ve log.
+    var debug = false;
+    try {
+      var flag = new URLSearchParams(window.location.search).get("oaiq_debug");
+      if (flag === "1") localStorage.setItem("oaiq_debug", "1");
+      if (flag === "0") localStorage.removeItem("oaiq_debug");
+      debug = localStorage.getItem("oaiq_debug") === "1";
+    } catch {
+      // sem storage: segue sem debug
+    }
+
+    window.oaiq("init", { pixelId: PIXEL_ID, debug: debug });
+    window.oaiq("measure", "page_viewed", { type: "contents" });
+
+    // os dois formularios Salesforce do site: #contato (legado, data.js) e #lead-contato (LeadForm.astro)
+    var FORMS = "#contato, #lead-contato";
+    var LEAD_KEY = "wp_oai_lead";
+    var FIRED_KEY = "wp_oai_lead_fired";
+    var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    // e-mail normalizado -> sha256. Fica so em memoria: nenhum dado pessoal vai pra storage.
+    var hashes = Object.create(null);
+
+    function normalize(value) {
+      return String(value == null ? "" : value)
+        .trim()
+        .toLowerCase();
+    }
+
+    function newEventId() {
+      try {
+        if (window.crypto && window.crypto.randomUUID) {
+          return window.crypto.randomUUID();
+        }
+      } catch {
+        // sem randomUUID: cai no fallback abaixo
+      }
+      return (
+        "wp-" +
+        Date.now().toString(36) +
+        "-" +
+        Math.random().toString(36).slice(2, 10)
+      );
+    }
+
+    // Pre-calcula o hash enquanto o usuario digita para que o submit fique 100% sincrono.
+    // A doc pede SHA-256 do e-mail com trim + lowercase.
+    function warmHash(email) {
+      if (!EMAIL_RE.test(email) || hashes[email]) return;
+      try {
+        if (!window.crypto || !window.crypto.subtle || !window.TextEncoder) {
+          return;
+        }
+        window.crypto.subtle
+          .digest("SHA-256", new TextEncoder().encode(email))
+          .then(function (buffer) {
+            var bytes = new Uint8Array(buffer);
+            var hex = "";
+            for (var i = 0; i < bytes.length; i++) {
+              hex += bytes[i].toString(16).padStart(2, "0");
+            }
+            hashes[email] = hex;
+          })
+          .catch(function () {
+            // sem hash o lead ainda converte, so com match mais fraco
+          });
+      } catch {
+        // idem
+      }
+    }
+
+    function onEmailActivity(event) {
+      var target = event.target;
+      if (!target || !target.closest) return;
+      var field = target.closest('input[type="email"]');
+      if (field && field.closest(FORMS)) warmHash(normalize(field.value));
+    }
+
+    // captura no document: o form do data.js e injetado depois do load
+    document.addEventListener("input", onEmailActivity, true);
+    document.addEventListener("blur", onEmailActivity, true);
+
+    // Sem preventDefault: aqui so gravamos o rastro e deixamos o POST pro Salesforce seguir.
+    document.addEventListener(
+      "submit",
+      function (event) {
+        try {
+          var target = event.target;
+          var form = target && target.closest ? target.closest(FORMS) : null;
+          if (!form) return;
+          var field = form.querySelector('input[type="email"]');
+          var email = field ? normalize(field.value) : "";
+          var lead = { event_id: newEventId() };
+          if (hashes[email]) lead.email_sha256 = hashes[email];
+          sessionStorage.setItem(LEAD_KEY, JSON.stringify(lead));
+          sessionStorage.removeItem(FIRED_KEY);
+        } catch {
+          // nunca pode atrapalhar o envio do lead
+        }
+      },
+      true,
+    );
+
+    // /obrigado e o retURL do Web-to-Lead, ou seja, a confirmacao real da conversao
+    if (/^\/obrigado\/?$/.test(window.location.pathname)) {
+      var stashedLead = null;
+      var alreadyFired = false;
+
+      try {
+        var stored = sessionStorage.getItem(LEAD_KEY);
+        stashedLead = stored ? JSON.parse(stored) : null;
+        alreadyFired = !!sessionStorage.getItem(FIRED_KEY);
+      } catch {
+        // storage bloqueado: segue com o fallback sem dados de match
+      }
+
+      if (stashedLead || !alreadyFired) {
+        var eventId = (stashedLead && stashedLead.event_id) || newEventId();
+
+        try {
+          sessionStorage.removeItem(LEAD_KEY);
+          sessionStorage.setItem(FIRED_KEY, eventId); // evita recontar no refresh
+        } catch {
+          // idem
+        }
+
+        if (stashedLead && stashedLead.email_sha256) {
+          window.oaiq("init", {
+            user: { email_sha256: stashedLead.email_sha256 },
+          });
+        }
+
+        window.oaiq(
+          "measure",
+          "lead_created",
+          { type: "customer_action" },
+          { event_id: eventId },
+        );
+      }
+    }
+  })();
+})();</script><link rel="icon" type="image/svg+xml" href="assets/weepulse-v1/brand/selo-weepulse.svg"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="canonical" href="index.html"><meta name="generator" content="Astro v6.1.8"><title>WeePulse - Sua Big Tech em produtos TOTVS</title><meta name="description" content="Consultoria completa em produtos TOTVS. Estratégia, pessoas e tecnologia para acelerar os resultados do seu negócio."><meta property="og:type" content="website"><meta property="og:title" content="WeePulse - Sua Big Tech em produtos TOTVS"><meta property="og:description" content="Consultoria completa em produtos TOTVS. Estratégia, pessoas e tecnologia para acelerar os resultados do seu negócio."><meta property="og:locale" content="pt_BR"><meta property="og:image" content="https://weepulse.com.br/assets/images/share-home-weepulse.png">
+<meta property="og:image:secure_url" content="https://weepulse.com.br/assets/images/share-home-weepulse.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="800">
+<meta property="og:image:height" content="600">
+<meta property="og:image:alt" content="WeePulse - Sua Big Tech em produtos TOTVS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://weepulse.com.br/assets/images/share-home-weepulse.png">
+<meta name="twitter:image:alt" content="WeePulse - Sua Big Tech em produtos TOTVS"><meta name="twitter:title" content="WeePulse - Sua Big Tech em produtos TOTVS"><meta name="twitter:description" content="Consultoria completa em produtos TOTVS. Estratégia, pessoas e tecnologia para acelerar os resultados do seu negócio."><link rel="stylesheet" href="_astro/readability.CRXs-8Lu.css">
+<style>.mobile-back-to-top[data-astro-cid-scylmpgr]{position:fixed;z-index:55;right:max(16px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));display:grid;width:48px;height:48px;place-items:center;padding:0;border:1px solid #ffffff70;border-radius:50%;color:#fff;background:#071c28;box-shadow:0 8px 24px #071c2840}.mobile-back-to-top[data-astro-cid-scylmpgr][hidden]{display:none}.mobile-back-to-top[data-astro-cid-scylmpgr] svg[data-astro-cid-scylmpgr]{width:22px;height:22px}.mobile-back-to-top[data-astro-cid-scylmpgr]:focus-visible{outline:3px solid #00e874;outline-offset:3px}@media(min-width:768px){.mobile-back-to-top[data-astro-cid-scylmpgr]{display:none}}
+</style>
+<link rel="stylesheet" href="_astro/SiteHeader.DwEFhpvG.css">
+<link rel="stylesheet" href="_astro/index@_@astro.BFYaFyfh.css"></head> <body> <div class="liquid-edition expansive-edition home-page" data-astro-cid-fqxfnkye> <a class="skip-link" href="index.html#conteudo" data-astro-cid-fqxfnkye>Ir para o conteúdo</a> <div class="opening" id="topo" data-astro-cid-fqxfnkye> <header class="site-header" data-header data-sticky-header data-astro-cid-wp3bg7ze> <a class="brand" href="index.html#topo" aria-label="WeePulse - início" data-astro-cid-wp3bg7ze><img src="assets/weepulse-v1/brand/footer-weepulse-logo.svg" data-header-logo data-scroll-src="assets/weepulse-v1/brand/logo-weepulse.svg" alt="WeePulse" width="184" height="44" data-astro-cid-wp3bg7ze></a> <nav class="main-nav" aria-label="Navegação principal" id="main-nav" data-astro-cid-wp3bg7ze> <details class="services-menu" data-services-menu data-astro-cid-wp3bg7ze> <summary data-astro-cid-wp3bg7ze>Serviços <svg viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-wp3bg7ze><path d="m4 6 4 4 4-4" data-astro-cid-wp3bg7ze></path></svg></summary> <div class="mega-menu" data-astro-cid-wp3bg7ze> <div class="mega-intro" data-astro-cid-wp3bg7ze><span class="eyebrow" data-astro-cid-wp3bg7ze>Ecossistema TOTVS</span><p data-astro-cid-wp3bg7ze>O próximo nível<br data-astro-cid-wp3bg7ze>do seu negócio.</p><a href="index.html#solucoes" data-astro-cid-wp3bg7ze>Explore nossas soluções <span data-astro-cid-wp3bg7ze>↗</span></a></div> <div class="mega-links" data-astro-cid-wp3bg7ze><a href="https://weepulse.com.br/consultoria-protheus/" data-astro-cid-wp3bg7ze><span class="menu-number" data-astro-cid-wp3bg7ze>01</span><span data-astro-cid-wp3bg7ze>Protheus</span><span aria-hidden="true" data-astro-cid-wp3bg7ze>↗</span></a><a href="https://weepulse.com.br/consultoria-rm/" data-astro-cid-wp3bg7ze><span class="menu-number" data-astro-cid-wp3bg7ze>02</span><span data-astro-cid-wp3bg7ze>RM</span><span aria-hidden="true" data-astro-cid-wp3bg7ze>↗</span></a><a href="https://weepulse.com.br/datasul/" data-astro-cid-wp3bg7ze><span class="menu-number" data-astro-cid-wp3bg7ze>03</span><span data-astro-cid-wp3bg7ze>Datasul</span><span aria-hidden="true" data-astro-cid-wp3bg7ze>↗</span></a><a href="https://weepulse.com.br/agro/" data-astro-cid-wp3bg7ze><span class="menu-number" data-astro-cid-wp3bg7ze>04</span><span data-astro-cid-wp3bg7ze>Agro</span><span aria-hidden="true" data-astro-cid-wp3bg7ze>↗</span></a><a href="https://weepulse.com.br/consultoria-fluig/" data-astro-cid-wp3bg7ze><span class="menu-number" data-astro-cid-wp3bg7ze>05</span><span data-astro-cid-wp3bg7ze>Fluig</span><span aria-hidden="true" data-astro-cid-wp3bg7ze>↗</span></a><a href="https://weepulse.com.br/outsourcing-ti/" data-astro-cid-wp3bg7ze><span class="menu-number" data-astro-cid-wp3bg7ze>06</span><span data-astro-cid-wp3bg7ze>Outsourcing</span><span aria-hidden="true" data-astro-cid-wp3bg7ze>↗</span></a><a href="https://weepulse.com.br/suporte-ams/" data-astro-cid-wp3bg7ze><span class="menu-number" data-astro-cid-wp3bg7ze>07</span><span data-astro-cid-wp3bg7ze>Suporte AMS</span><span aria-hidden="true" data-astro-cid-wp3bg7ze>↗</span></a><a href="https://weepulse.com.br/tracao/" data-astro-cid-wp3bg7ze><span class="menu-number" data-astro-cid-wp3bg7ze>08</span><span data-astro-cid-wp3bg7ze>Tração</span><span aria-hidden="true" data-astro-cid-wp3bg7ze>↗</span></a></div> </div> </details> <a class="nav-tracao" href="https://weepulse.com.br/tracao/" data-astro-cid-wp3bg7ze><span class="nav-tracao-label" data-astro-cid-wp3bg7ze>Tração</span></a> <a class="nav-reforma" href="https://weepulse.com.br/consultoria-protheus/reforma-360/" data-astro-cid-wp3bg7ze>Reforma Tributária</a> <a href="https://weepulse.com.br/cases/" data-astro-cid-wp3bg7ze>Cases</a> <a href="https://weepulse.com.br/blog/" data-astro-cid-wp3bg7ze>Insights</a> <a href="https://weehub.com.br/trabalhe-aqui/?empresa=weepulse" data-astro-cid-wp3bg7ze>Trabalhe aqui <span aria-hidden="true" data-astro-cid-wp3bg7ze>↗</span></a> </nav> <a class="nav-contact" href="index.html#contato" data-astro-cid-wp3bg7ze>Vamos conversar <span aria-hidden="true" data-astro-cid-wp3bg7ze>↗</span></a> <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="main-nav" aria-label="Abrir menu" data-menu-toggle data-astro-cid-wp3bg7ze><span data-astro-cid-wp3bg7ze></span><span data-astro-cid-wp3bg7ze></span></button> </header> <section class="hero" aria-labelledby="hero-title" data-astro-cid-fqxfnkye> <div class="hero-character-stage" data-cursor-character data-character-version="2" aria-hidden="true" data-astro-cid-fqxfnkye> <picture class="hero-character-poster" data-astro-cid-fqxfnkye> <source media="(max-width: 620px)" srcset="assets/weepulse-v1/character/poster/mobile.webp?v=2" type="image/webp" data-astro-cid-fqxfnkye> <img src="assets/weepulse-v1/character/poster/desktop.webp?v=2" width="1066" height="960" alt="" fetchpriority="high" data-astro-cid-fqxfnkye> </picture> <canvas class="hero-character-canvas" aria-hidden="true" data-astro-cid-fqxfnkye></canvas> </div> <div class="hero-pixel-grid" aria-hidden="true" data-astro-cid-fqxfnkye></div> <div class="hero-mobile-shade" aria-hidden="true" data-astro-cid-fqxfnkye></div> <div class="hero-seal" aria-hidden="true" data-astro-cid-fqxfnkye> <svg class="hero-seal-letters" viewBox="0 0 160 160" focusable="false" data-astro-cid-fqxfnkye> <defs data-astro-cid-fqxfnkye><path id="hero-seal-ring" d="M18 80a62 62 0 1 1 124 0a62 62 0 1 1-124 0" data-astro-cid-fqxfnkye></path></defs> <text fill="currentColor" data-astro-cid-fqxfnkye><textPath href="#hero-seal-ring" startOffset="9.8" textLength="370" lengthAdjust="spacing" data-astro-cid-fqxfnkye>SUA BIG TECH · EM PRODUTOS TOTVS · </textPath></text> </svg> <svg class="hero-seal-letters hero-seal-letters-mobile mobile-seal-letters" viewBox="0 0 160 160" focusable="false"> <defs><path id="hero-seal-ring-mobile" d="M18 80a62 62 0 1 1 124 0a62 62 0 1 1-124 0"></path></defs> <text fill="currentColor" textLength="386" lengthAdjust="spacing"><textPath href="#hero-seal-ring-mobile" startOffset="1.8" textLength="386" lengthAdjust="spacing">SUA BIG TECH · EM PRODUTOS TOTVS ·</textPath></text> </svg> <img src="assets/weepulse-v1/brand/selo-weepulse.svg" width="66" height="66" alt="" data-astro-cid-fqxfnkye> </div> <div class="hero-content" data-astro-cid-fqxfnkye> <span class="eyebrow hero-eyebrow" data-astro-cid-fqxfnkye><i class="status-dot" data-astro-cid-fqxfnkye></i> Design system vivo</span> <h1 id="hero-title" data-astro-cid-fqxfnkye><strong data-astro-cid-fqxfnkye>WeePulse</strong><br data-astro-cid-fqxfnkye>Design<br data-astro-cid-fqxfnkye><span class="totvs-word" data-astro-cid-fqxfnkye><span class="totvs-a11y" data-astro-cid-fqxfnkye>System</span><span class="totvs-reveal" aria-hidden="true" data-astro-cid-fqxfnkye><span class="totvs-letter" data-astro-cid-fqxfnkye>S</span><span class="totvs-letter" data-astro-cid-fqxfnkye>Y</span><span class="totvs-letter" data-astro-cid-fqxfnkye>S</span><span class="totvs-letter" data-astro-cid-fqxfnkye>T</span><span class="totvs-letter" data-astro-cid-fqxfnkye>E</span><span class="totvs-letter" data-astro-cid-fqxfnkye>M</span></span><span class="slash-effect" aria-hidden="true" data-astro-cid-fqxfnkye><span class="slash-core" data-astro-cid-fqxfnkye><svg class="brand-slash" viewBox="84.0313 13.7694 12.6608 19.6851" fill="currentColor" focusable="false" data-astro-cid-fqxfnkye><path d="M87.2957 33.4545L96.1022 13.7694H93.4022L84.5957 33.4545H87.2957Z" data-astro-cid-fqxfnkye></path></svg></span></span></span></h1> <div class="hero-action" data-astro-cid-fqxfnkye><p data-astro-cid-fqxfnkye>Verde elétrico sobre azul profundo. <b data-astro-cid-fqxfnkye>Raleway, cantos suaves e movimento sutil.</b></p><a class="button button-green" href="index.html#contato" data-astro-cid-fqxfnkye><em class="button-label" data-astro-cid-fqxfnkye>Lorem ipsum dolor</em><span class="button-icon" aria-hidden="true" data-astro-cid-fqxfnkye><svg viewBox="0 0 24 24" fill="none" data-astro-cid-fqxfnkye><path d="M6 18 18 6M6 6h12v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" data-astro-cid-fqxfnkye></path></svg></span></a></div> </div> <a class="hero-film" href="https://iframe.videodelivery.net/d0901b867b827f66c0da0d43abda121c?controls=true&#38;primaryColor=%2300e874&#38;poster=https%3A%2F%2Fweepulse.com.br%2Fassets%2Fweepulse-v1%2Fimages%2Fthumb-manifesto.webp" target="_blank" rel="noopener noreferrer" data-manifesto-open data-astro-cid-fqxfnkye><span class="film-media" aria-hidden="true" data-astro-cid-fqxfnkye><img class="film-avatar" src="assets/weepulse-v1/brand/selo-weepulse.svg" width="44" height="44" alt="" data-astro-cid-fqxfnkye><span class="film-play" data-astro-cid-fqxfnkye><svg viewBox="0 0 12 12" fill="none" aria-hidden="true" data-astro-cid-fqxfnkye><path d="m4 2.7 5 3.3-5 3.3V2.7Z" fill="currentColor" data-astro-cid-fqxfnkye></path></svg></span></span><span data-astro-cid-fqxfnkye>LOREM IPSUM DOLOR SIT.<b data-astro-cid-fqxfnkye>Consectetur adipiscing.</b></span><span class="film-arrow" aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></a> <div class="hero-bottom" data-astro-cid-fqxfnkye><a href="index.html#conteudo" data-astro-cid-fqxfnkye><span class="hero-scroll-icon" aria-hidden="true" data-astro-cid-fqxfnkye><svg viewBox="0 0 20 20" fill="none" data-astro-cid-fqxfnkye><path d="M10 3v13m0 0 5-5m-5 5-5-5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" data-astro-cid-fqxfnkye></path></svg></span> Lorem ipsum dolor</a></div> <div class="hero-coordinate" aria-hidden="true" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>OLÁ, SOMOS A</span><i data-astro-cid-fqxfnkye></i><span data-astro-cid-fqxfnkye>WEEPULSE</span></div> </section> </div> <main id="conteudo" data-astro-cid-fqxfnkye> <div class="information-frame" data-astro-cid-fqxfnkye> <a class="client-section wrap" href="https://weepulse.com.br/cases/" aria-label="Conheça os cases de consultoria TOTVS da WeePulse" data-astro-cid-fqxfnkye> <div class="client-intro" data-astro-cid-fqxfnkye><p data-astro-cid-fqxfnkye>Lorem ipsum.<br data-astro-cid-fqxfnkye><b data-astro-cid-fqxfnkye>Dolor sit amet.</b></p><span aria-hidden="true" data-astro-cid-fqxfnkye>↘</span></div> <div class="client-window" data-astro-cid-fqxfnkye><div class="client-track" data-astro-cid-fqxfnkye><div class="logo-group" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-petz.svg" alt="Petz" width="120" height="46" style="--client-logo-height:28px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-konecta.svg" alt="Konecta" width="120" height="46" style="--client-logo-height:29px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-naturgy.svg" alt="Naturgy" width="120" height="46" style="--client-logo-height:34px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-porto.svg" alt="Porto" width="120" height="46" style="--client-logo-height:29px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-fasano.svg" alt="Fasano" width="120" height="46" style="--client-logo-height:29px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-afya.svg" alt="Afya" width="120" height="46" style="--client-logo-height:38px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-petrobras.svg" alt="Petrobras" width="120" height="46" style="--client-logo-height:39px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-gruposalta.svg" alt="Grupo Salta" width="120" height="46" style="--client-logo-height:57px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-jofege.svg" alt="Jofege" width="120" height="46" style="--client-logo-height:55px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-bauminas.svg" alt="Bauminas" width="120" height="46" style="--client-logo-height:56px" data-astro-cid-fqxfnkye></div><div class="logo-group" aria-hidden="true" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-petz.svg" alt width="120" height="46" style="--client-logo-height:28px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-konecta.svg" alt width="120" height="46" style="--client-logo-height:29px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-naturgy.svg" alt width="120" height="46" style="--client-logo-height:34px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-porto.svg" alt width="120" height="46" style="--client-logo-height:29px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-fasano.svg" alt width="120" height="46" style="--client-logo-height:29px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-afya.svg" alt width="120" height="46" style="--client-logo-height:38px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-petrobras.svg" alt width="120" height="46" style="--client-logo-height:39px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-gruposalta.svg" alt width="120" height="46" style="--client-logo-height:57px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-jofege.svg" alt width="120" height="46" style="--client-logo-height:55px" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-bauminas.svg" alt width="120" height="46" style="--client-logo-height:56px" data-astro-cid-fqxfnkye></div></div></div> </a> <section class="intro wrap section-space" aria-labelledby="intro-title" data-astro-cid-fqxfnkye> <div class="section-heading" data-reveal data-astro-cid-fqxfnkye><div data-astro-cid-fqxfnkye><span class="eyebrow" data-astro-cid-fqxfnkye><i class="tiny-slash" data-astro-cid-fqxfnkye></i> Lorem ipsum dolor</span><h2 id="intro-title" data-astro-cid-fqxfnkye>Lorem ipsum.<br data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>Dolor sit amet.</span></h2></div><p class="section-support" data-astro-cid-fqxfnkye><span class="section-support-icon" aria-hidden="true" data-astro-cid-fqxfnkye><span class="decorative-asterisk" aria-hidden="true"><span class="asterisk-glyph">✳</span><svg class="asterisk-vector" viewBox="0 0 24 24" fill="none" focusable="false"><path d="M12 3v18M3 12h18M5.64 5.64l12.72 12.72M5.64 18.36L18.36 5.64" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></span></span><span class="section-support-copy" data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</span></p></div> <div class="proof-grid" data-astro-cid-fqxfnkye> <article class="proof-feature" data-reveal data-spotlight data-astro-cid-fqxfnkye><div class="card-overline" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>Lorem ipsum dolor</span><span class="proof-top-icon" aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div><div class="proof-sculpture" aria-hidden="true" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/images/proof-glass-weepulse.png" width="666" height="1000" alt="" loading="lazy" decoding="async" data-astro-cid-fqxfnkye></div><div class="proof-pixel-grid" aria-hidden="true" data-astro-cid-fqxfnkye></div><div class="proof-number" data-astro-cid-fqxfnkye><strong data-astro-cid-fqxfnkye><span class="odometer" data-odometer="2.500"> <span class="odometer-accessible">2.500</span> <span class="odometer-visual" aria-hidden="true"><span class="odometer-wheel" data-odometer-digit="2"><span class="odometer-final">2</span></span><span class="odometer-separator">.</span><span class="odometer-wheel" data-odometer-digit="5"><span class="odometer-final">5</span></span><span class="odometer-wheel" data-odometer-digit="0"><span class="odometer-final">0</span></span><span class="odometer-wheel" data-odometer-digit="0"><span class="odometer-final">0</span></span></span> </span> <script type="module">function x(){const i=window.matchMedia("(prefers-reduced-motion: reduce)"),c=new AbortController;let m=!1;const o=[...document.querySelectorAll("[data-odometer]")].map(e=>{const t=[...e.querySelectorAll("[data-odometer-digit]")].map((n,S)=>{const h=(S+1)*10+Number(n.dataset.odometerDigit),d=document.createElement("span");d.className="odometer-window";const s=document.createElement("span");s.className="odometer-reel";const g=document.createDocumentFragment();for(let l=0;l<=h;l++){const w=document.createElement("span");w.textContent=String(l%10),g.append(w)}s.append(g);const E=`translate3d(0, -${h}em, 0)`;return s.style.transform=E,d.append(s),n.append(d),{element:s,end:E}});return e.dataset.odometerState="ready",{element:e,reels:t,animations:[],complete:!1,inView:!1}});function a(e){e.animations.forEach(t=>t.cancel()),e.animations=[],e.complete=!0,e.element.dataset.odometerState="complete"}function f(e){e.animations.forEach(t=>t.cancel()),e.animations=[],e.complete=!1,e.element.dataset.odometerState="ready"}function p(e){e.complete||e.animations.length||(e.element.dataset.odometerState="rolling",e.animations=e.reels.map((t,n)=>t.element.animate([{transform:"translate3d(0, 0, 0)"},{transform:t.end}],{duration:1400+n*150,easing:"cubic-bezier(.16, 1, .3, 1)",fill:"both"})),document.hidden&&e.animations.forEach(t=>t.pause()),Promise.all(e.animations.map(t=>t.finished)).then(()=>{m||a(e)}).catch(()=>{}))}const y=new Map(o.map(e=>[e.element,e])),u=new IntersectionObserver(e=>{for(const t of e){const n=y.get(t.target);if(n.inView=t.isIntersecting&&t.intersectionRatio>=.6,!t.isIntersecting){f(n);continue}n.inView&&(i.matches?a(n):p(n))}},{threshold:[0,.6],rootMargin:"0px 0px -24px 0px"});return i.matches&&o.forEach(a),o.forEach(e=>u.observe(e.element)),i.addEventListener("change",()=>{for(const e of o)i.matches?a(e):(f(e),e.inView&&p(e))},{signal:c.signal}),document.addEventListener("visibilitychange",()=>{for(const e of o)e.animations.forEach(t=>document.hidden?t.pause():t.play())},{signal:c.signal}),()=>{m=!0,c.abort(),u.disconnect();for(const e of o)a(e),e.element.querySelectorAll(".odometer-window").forEach(t=>t.remove()),delete e.element.dataset.odometerState}}let r;function v(){r?.(),r=x()}v();document.addEventListener("astro:page-load",v);document.addEventListener("astro:before-swap",()=>{r?.(),r=void 0});</script><sup data-astro-cid-fqxfnkye>+</sup></strong><p data-astro-cid-fqxfnkye>lorem ipsum.<br data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>Dolor sit amet.</span></p></div></article> <article class="proof-green" data-reveal data-astro-cid-fqxfnkye><div class="card-overline" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>Lorem ipsum dolor</span><span class="proof-top-icon" aria-hidden="true" data-astro-cid-fqxfnkye><span class="decorative-asterisk" aria-hidden="true"><span class="asterisk-glyph">✳</span><svg class="asterisk-vector" viewBox="0 0 24 24" fill="none" focusable="false"><path d="M12 3v18M3 12h18M5.64 5.64l12.72 12.72M5.64 18.36L18.36 5.64" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></span></span></div><strong data-astro-cid-fqxfnkye><span class="odometer" data-odometer="500"> <span class="odometer-accessible">500</span> <span class="odometer-visual" aria-hidden="true"><span class="odometer-wheel" data-odometer-digit="5"><span class="odometer-final">5</span></span><span class="odometer-wheel" data-odometer-digit="0"><span class="odometer-final">0</span></span><span class="odometer-wheel" data-odometer-digit="0"><span class="odometer-final">0</span></span></span> </span> <sup data-astro-cid-fqxfnkye>+</sup></strong><p data-astro-cid-fqxfnkye>lorem ipsum dolor.</p><div class="company-marks" aria-hidden="true" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-petz.svg" alt="" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-porto.svg" alt="" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-afya.svg" alt="" data-astro-cid-fqxfnkye></div></article> <div class="proof-stack" data-astro-cid-fqxfnkye><article data-reveal data-astro-cid-fqxfnkye><span class="card-overline" data-astro-cid-fqxfnkye>Lorem ipsum dolor</span><strong data-astro-cid-fqxfnkye><span class="odometer" data-odometer="20"> <span class="odometer-accessible">20</span> <span class="odometer-visual" aria-hidden="true"><span class="odometer-wheel" data-odometer-digit="2"><span class="odometer-final">2</span></span><span class="odometer-wheel" data-odometer-digit="0"><span class="odometer-final">0</span></span></span> </span> <sup data-astro-cid-fqxfnkye>+</sup></strong><p data-astro-cid-fqxfnkye>lorem ipsum sit.</p><span class="stat-symbol" aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></article><article data-reveal data-astro-cid-fqxfnkye><span class="card-overline" data-astro-cid-fqxfnkye>Lorem ipsum dolor</span><strong data-astro-cid-fqxfnkye><span class="odometer" data-odometer="250"> <span class="odometer-accessible">250</span> <span class="odometer-visual" aria-hidden="true"><span class="odometer-wheel" data-odometer-digit="2"><span class="odometer-final">2</span></span><span class="odometer-wheel" data-odometer-digit="5"><span class="odometer-final">5</span></span><span class="odometer-wheel" data-odometer-digit="0"><span class="odometer-final">0</span></span></span> </span> <sup data-astro-cid-fqxfnkye>+</sup></strong><p data-astro-cid-fqxfnkye>lorem ipsum dolor sit.</p><span class="stat-symbol" aria-hidden="true" data-astro-cid-fqxfnkye><span class="decorative-asterisk" aria-hidden="true"><span class="asterisk-glyph">✳</span><svg class="asterisk-vector" viewBox="0 0 24 24" fill="none" focusable="false"><path d="M12 3v18M3 12h18M5.64 5.64l12.72 12.72M5.64 18.36L18.36 5.64" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></span></span></article></div> </div> </section> <section class="solutions-section wrap section-space" id="solucoes" aria-labelledby="solutions-title" data-astro-cid-fqxfnkye> <div class="section-heading" data-reveal data-astro-cid-fqxfnkye><div data-astro-cid-fqxfnkye><span class="eyebrow" data-astro-cid-fqxfnkye><i class="tiny-slash" data-astro-cid-fqxfnkye></i> Lorem ipsum. Dolor sit amet.</span><h2 id="solutions-title" data-astro-cid-fqxfnkye>Lorem ipsum.<br data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>Dolor sit amet.</span></h2></div><p class="section-support" data-astro-cid-fqxfnkye><span class="section-support-icon" aria-hidden="true" data-astro-cid-fqxfnkye><span class="decorative-asterisk" aria-hidden="true"><span class="asterisk-glyph">✳</span><svg class="asterisk-vector" viewBox="0 0 24 24" fill="none" focusable="false"><path d="M12 3v18M3 12h18M5.64 5.64l12.72 12.72M5.64 18.36L18.36 5.64" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></span></span><span class="section-support-copy" data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore.</span></p></div> <div class="solution-grid" data-astro-cid-fqxfnkye> <a class="solution-card solution-featured" href="https://weepulse.com.br/consultoria-protheus/" style="--service-accent:#06acff" data-reveal data-astro-cid-fqxfnkye><div class="solution-top" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-protheus.svg" alt="TOTVS Protheus" loading="lazy" data-astro-cid-fqxfnkye><span class="service-index" data-astro-cid-fqxfnkye>01</span></div><div class="solution-sculpture" aria-hidden="true" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/images/protheus-glass-mint.webp" width="1100" height="1100" alt="" loading="lazy" decoding="async" data-astro-cid-fqxfnkye></div><div class="solution-copy" data-astro-cid-fqxfnkye><h3 data-astro-cid-fqxfnkye>Lorem ipsum. Dolor sit.</h3><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p></div><div class="solution-bottom" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>Lorem ipsum</span><span class="circle-arrow" aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div></a><a class="solution-card" href="https://weepulse.com.br/consultoria-rm/" style="--service-accent:#00e874" data-reveal data-astro-cid-fqxfnkye><div class="solution-top" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-rm.svg" alt="TOTVS RM" loading="lazy" data-astro-cid-fqxfnkye><span class="service-index" data-astro-cid-fqxfnkye>02</span></div><div class="solution-copy" data-astro-cid-fqxfnkye><h3 data-astro-cid-fqxfnkye>Lorem ipsum dolor.</h3><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p></div><div class="solution-bottom" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>Lorem ipsum</span><span class="circle-arrow" aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div></a><a class="solution-card" href="https://weepulse.com.br/datasul/" style="--service-accent:#e856e4" data-reveal data-astro-cid-fqxfnkye><div class="solution-top" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-datasul.svg" alt="TOTVS Datasul" loading="lazy" data-astro-cid-fqxfnkye><span class="service-index" data-astro-cid-fqxfnkye>03</span></div><div class="solution-copy" data-astro-cid-fqxfnkye><h3 data-astro-cid-fqxfnkye>Lorem ipsum dolor.</h3><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p></div><div class="solution-bottom" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>Lorem ipsum</span><span class="circle-arrow" aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div></a><a class="solution-card" href="https://weepulse.com.br/agro/" style="--service-accent:#29826b" data-reveal data-astro-cid-fqxfnkye><div class="solution-top" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-pims-agro.svg" alt="TOTVS Agro" loading="lazy" data-astro-cid-fqxfnkye><span class="service-index" data-astro-cid-fqxfnkye>04</span></div><div class="solution-copy" data-astro-cid-fqxfnkye><h3 data-astro-cid-fqxfnkye>Lorem ipsum dolor.</h3><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p></div><div class="solution-bottom" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>Lorem ipsum</span><span class="circle-arrow" aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div></a><a class="solution-card" href="https://weepulse.com.br/consultoria-fluig/" style="--service-accent:#ff7843" data-reveal data-astro-cid-fqxfnkye><div class="solution-top" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-fluig.svg" alt="TOTVS Fluig" loading="lazy" data-astro-cid-fqxfnkye><span class="service-index" data-astro-cid-fqxfnkye>05</span></div><div class="solution-copy" data-astro-cid-fqxfnkye><h3 data-astro-cid-fqxfnkye>Lorem ipsum dolor.</h3><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p></div><div class="solution-bottom" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>Lorem ipsum</span><span class="circle-arrow" aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div></a><a class="solution-card" href="https://weepulse.com.br/outsourcing-ti/" style="--service-accent:#00e874" data-reveal data-astro-cid-fqxfnkye><div class="solution-top" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-outsourcing.svg" alt="Outsourcing de TI" loading="lazy" data-astro-cid-fqxfnkye><span class="service-index" data-astro-cid-fqxfnkye>06</span></div><div class="solution-copy" data-astro-cid-fqxfnkye><h3 data-astro-cid-fqxfnkye>Lorem ipsum dolor.</h3><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p></div><div class="solution-bottom" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>Lorem ipsum</span><span class="circle-arrow" aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div></a><a class="solution-card" href="https://weepulse.com.br/suporte-ams/" style="--service-accent:#5ebd69" data-reveal data-astro-cid-fqxfnkye><div class="solution-top" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/logo-ams.svg" alt="Suporte AMS" loading="lazy" data-astro-cid-fqxfnkye><span class="service-index" data-astro-cid-fqxfnkye>07</span></div><div class="solution-copy" data-astro-cid-fqxfnkye><h3 data-astro-cid-fqxfnkye>Lorem ipsum dolor.</h3><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p></div><div class="solution-bottom" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>Lorem ipsum</span><span class="circle-arrow" aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div></a> </div> </section> <section class="journey-section" id="metodo" aria-labelledby="journey-title" data-astro-cid-fqxfnkye><div class="wrap section-space" data-astro-cid-fqxfnkye> <div class="section-heading" data-reveal data-astro-cid-fqxfnkye><div data-astro-cid-fqxfnkye><span class="eyebrow" data-astro-cid-fqxfnkye><i class="tiny-slash" data-astro-cid-fqxfnkye></i> Lorem ipsum dolor sit amet</span><h2 id="journey-title" data-astro-cid-fqxfnkye>Lorem ipsum.<br data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>Dolor sit amet.</span></h2></div><p class="section-support" data-astro-cid-fqxfnkye><span class="section-support-icon" aria-hidden="true" data-astro-cid-fqxfnkye><span class="decorative-asterisk" aria-hidden="true"><span class="asterisk-glyph">✳</span><svg class="asterisk-vector" viewBox="0 0 24 24" fill="none" focusable="false"><path d="M12 3v18M3 12h18M5.64 5.64l12.72 12.72M5.64 18.36L18.36 5.64" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></span></span><span class="section-support-copy" data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore.</span></p></div> <div class="journey-grid" data-astro-cid-fqxfnkye><article class="journey-step" data-mobile-journey data-reveal data-astro-cid-fqxfnkye><div class="step-top" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>01</span><span class="step-icon" aria-hidden="true" data-astro-cid-fqxfnkye>◎</span></div><h3 data-astro-cid-fqxfnkye>Lorem</h3><p class="step-subtitle" data-astro-cid-fqxfnkye>Ipsum dolor sit amet.</p><p class="step-support" id="phase-support-0" data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore.</p><div class="step-art" id="phase-art-0" aria-hidden="true" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/images/method-analysis-glass.webp" width="800" height="800" alt="" loading="lazy" decoding="async" data-astro-cid-fqxfnkye></div><details class="phase-details" name="journey-phases" data-astro-cid-fqxfnkye><summary aria-controls="phase-support-0 phase-art-0 phase-items-0" data-astro-cid-fqxfnkye>Como fazemos <span aria-hidden="true" data-astro-cid-fqxfnkye>+</span></summary><ul id="phase-items-0" data-astro-cid-fqxfnkye><li data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet</li><li data-astro-cid-fqxfnkye>Consectetur adipiscing</li><li data-astro-cid-fqxfnkye>Sed do eiusmod tempor</li></ul></details></article><article class="journey-step" data-mobile-journey data-reveal data-astro-cid-fqxfnkye><div class="step-top" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>02</span><span class="step-icon" aria-hidden="true" data-astro-cid-fqxfnkye>⌘</span></div><h3 data-astro-cid-fqxfnkye>Ipsum</h3><p class="step-subtitle" data-astro-cid-fqxfnkye>Dolor sit amet consectetur.</p><p class="step-support" id="phase-support-1" data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore.</p><div class="step-art" id="phase-art-1" aria-hidden="true" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/images/method-development-glass.webp" width="800" height="800" alt="" loading="lazy" decoding="async" data-astro-cid-fqxfnkye></div><details class="phase-details" name="journey-phases" data-astro-cid-fqxfnkye><summary aria-controls="phase-support-1 phase-art-1 phase-items-1" data-astro-cid-fqxfnkye>Como fazemos <span aria-hidden="true" data-astro-cid-fqxfnkye>+</span></summary><ul id="phase-items-1" data-astro-cid-fqxfnkye><li data-astro-cid-fqxfnkye>Lorem ipsum dolor sit</li><li data-astro-cid-fqxfnkye>Consectetur adipiscing elit</li><li data-astro-cid-fqxfnkye>Sed do eiusmod tempor</li><li data-astro-cid-fqxfnkye>Incididunt ut labore</li><li data-astro-cid-fqxfnkye>Et dolore magna aliqua</li></ul></details></article><article class="journey-step" data-mobile-journey data-reveal data-astro-cid-fqxfnkye><div class="step-top" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>03</span><span class="step-icon" aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div><h3 data-astro-cid-fqxfnkye>Dolor</h3><p class="step-subtitle" data-astro-cid-fqxfnkye>Sit amet consectetur.</p><p class="step-support" id="phase-support-2" data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore.</p><div class="step-art" id="phase-art-2" aria-hidden="true" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/images/method-optimization-glass.webp" width="800" height="800" alt="" loading="lazy" decoding="async" data-astro-cid-fqxfnkye></div><details class="phase-details" name="journey-phases" data-astro-cid-fqxfnkye><summary aria-controls="phase-support-2 phase-art-2 phase-items-2" data-astro-cid-fqxfnkye>Como fazemos <span aria-hidden="true" data-astro-cid-fqxfnkye>+</span></summary><ul id="phase-items-2" data-astro-cid-fqxfnkye><li data-astro-cid-fqxfnkye>Lorem ipsum dolor</li><li data-astro-cid-fqxfnkye>Consectetur adipiscing</li><li data-astro-cid-fqxfnkye>Sed do eiusmod tempor</li><li data-astro-cid-fqxfnkye>Incididunt ut labore et dolore</li></ul></details></article></div> </div></section> <section class="cases-section wrap section-space" id="clientes" aria-labelledby="cases-title" data-astro-cid-fqxfnkye> <div class="section-heading" data-reveal data-astro-cid-fqxfnkye><div data-astro-cid-fqxfnkye><span class="eyebrow" data-astro-cid-fqxfnkye><i class="tiny-slash" data-astro-cid-fqxfnkye></i> Lorem ipsum dolor</span><h2 id="cases-title" data-astro-cid-fqxfnkye>Lorem ipsum.<br data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>Dolor sit.</span></h2></div><div class="cases-intro" data-astro-cid-fqxfnkye><p class="section-support" data-astro-cid-fqxfnkye><span class="section-support-icon" aria-hidden="true" data-astro-cid-fqxfnkye><span class="decorative-asterisk" aria-hidden="true"><span class="asterisk-glyph">✳</span><svg class="asterisk-vector" viewBox="0 0 24 24" fill="none" focusable="false"><path d="M12 3v18M3 12h18M5.64 5.64l12.72 12.72M5.64 18.36L18.36 5.64" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></span></span><span class="section-support-copy" data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</span></p><div class="carousel-controls" data-astro-cid-fqxfnkye><button type="button" aria-label="Ver case anterior" data-case-prev data-astro-cid-fqxfnkye>←</button><button type="button" aria-label="Ver próximo case" data-case-next data-astro-cid-fqxfnkye>→</button></div></div></div> <div class="case-rail" data-case-rail tabindex="0" aria-label="Cases de clientes; use as setas para explorar" data-astro-cid-fqxfnkye><article class="case-card" style="--case-glow-rgb:255 18 94" data-astro-cid-fqxfnkye><div class="case-top" data-astro-cid-fqxfnkye><span class="case-category" data-astro-cid-fqxfnkye>TOTVS RM</span><span data-astro-cid-fqxfnkye>01</span></div><a class="case-logo" href="https://weepulse.com.br/cases/" aria-label="Ver cases de consultoria TOTVS: Afya Educacional" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/images/afya.webp" alt="Afya Educacional" loading="lazy" data-astro-cid-fqxfnkye></a><h3 data-astro-cid-fqxfnkye>Afya Educacional</h3><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p><div class="case-end" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>LOREM IPSUM DOLOR SIT</span><span aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div></article><article class="case-card" style="--case-glow-rgb:32 40 46" data-astro-cid-fqxfnkye><div class="case-top" data-astro-cid-fqxfnkye><span class="case-category" data-astro-cid-fqxfnkye>TOTVS Protheus</span><span data-astro-cid-fqxfnkye>02</span></div><a class="case-logo" href="https://weepulse.com.br/cases/" aria-label="Ver cases de consultoria TOTVS: HPE (Mitsubishi)" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/images/hpe.webp" alt="HPE (Mitsubishi)" loading="lazy" data-astro-cid-fqxfnkye></a><h3 data-astro-cid-fqxfnkye>HPE (Mitsubishi)</h3><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p><div class="case-end" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>LOREM IPSUM DOLOR SIT</span><span aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div></article><article class="case-card" style="--case-glow-rgb:14 55 132" data-astro-cid-fqxfnkye><div class="case-top" data-astro-cid-fqxfnkye><span class="case-category" data-astro-cid-fqxfnkye>Fluig</span><span data-astro-cid-fqxfnkye>03</span></div><a class="case-logo" href="https://weepulse.com.br/cases/" aria-label="Ver cases de consultoria TOTVS: Pilot Pen" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/images/pilot.webp" alt="Pilot Pen" loading="lazy" data-astro-cid-fqxfnkye></a><h3 data-astro-cid-fqxfnkye>Pilot Pen</h3><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p><div class="case-end" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>LOREM IPSUM DOLOR SIT</span><span aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div></article><article class="case-card" style="--case-glow-rgb:108 34 91" data-astro-cid-fqxfnkye><div class="case-top" data-astro-cid-fqxfnkye><span class="case-category" data-astro-cid-fqxfnkye>TOTVS Datasul</span><span data-astro-cid-fqxfnkye>04</span></div><a class="case-logo" href="https://weepulse.com.br/cases/" aria-label="Ver cases de consultoria TOTVS: Solcera" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/images/solcera.webp" alt="Solcera" loading="lazy" data-astro-cid-fqxfnkye></a><h3 data-astro-cid-fqxfnkye>Solcera</h3><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p><div class="case-end" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>LOREM IPSUM DOLOR SIT</span><span aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div></article><article class="case-card" style="--case-glow-rgb:0 63 150" data-astro-cid-fqxfnkye><div class="case-top" data-astro-cid-fqxfnkye><span class="case-category" data-astro-cid-fqxfnkye>Backoffice Protheus</span><span data-astro-cid-fqxfnkye>05</span></div><a class="case-logo" href="https://weepulse.com.br/cases/" aria-label="Ver cases de consultoria TOTVS: KPMG" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/images/kpmg.webp" alt="KPMG" loading="lazy" data-astro-cid-fqxfnkye></a><h3 data-astro-cid-fqxfnkye>KPMG</h3><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p><div class="case-end" data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>LOREM IPSUM DOLOR SIT</span><span aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div></article></div><div class="rail-indicator" data-astro-cid-fqxfnkye><span data-rail-progress data-astro-cid-fqxfnkye></span></div> <p style="margin-top: 28px" data-astro-cid-fqxfnkye><a class="button button-dark" href="https://weepulse.com.br/cases/" data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet <span aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></a></p> </section> <section class="culture-section wrap" id="cultura" aria-labelledby="culture-title" data-astro-cid-fqxfnkye> <div class="culture-image culture-video-card" data-reveal data-astro-cid-fqxfnkye><video autoplay muted loop playsinline preload="metadata" poster="assets/weepulse-v1/images/culture-light-reveal.jpg" aria-hidden="true" data-astro-cid-fqxfnkye><source src="assets/weepulse-v1/videos/culture-light-reveal.mp4" type="video/mp4" data-astro-cid-fqxfnkye></video><div class="culture-label" data-astro-cid-fqxfnkye><span class="culture-icon" aria-hidden="true" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/users-icon.svg" width="23" height="19" alt="" data-astro-cid-fqxfnkye></span><span data-astro-cid-fqxfnkye>Lorem ipsum.<br data-astro-cid-fqxfnkye><b data-astro-cid-fqxfnkye>Dolor sit.</b></span></div></div> <div class="culture-main" data-reveal data-astro-cid-fqxfnkye><span class="eyebrow" data-astro-cid-fqxfnkye>Lorem ipsum dolor sit.</span><h2 id="culture-title" data-astro-cid-fqxfnkye>Lorem<br data-astro-cid-fqxfnkye>ipsum.<br data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>Dolor<br data-astro-cid-fqxfnkye>sit amet.</span></h2><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p><a class="button button-dark culture-cta" href="https://weehub.com.br/trabalhe-aqui/?empresa=weepulse" data-astro-cid-fqxfnkye><em class="button-label" data-astro-cid-fqxfnkye>Lorem ipsum dolor</em><span class="button-icon" aria-hidden="true" data-astro-cid-fqxfnkye><svg viewBox="0 0 24 24" fill="none" data-astro-cid-fqxfnkye><path d="M6 18 18 6M6 6h12v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" data-astro-cid-fqxfnkye></path></svg></span></a></div> <div class="culture-note" data-reveal data-astro-cid-fqxfnkye><span aria-hidden="true" data-astro-cid-fqxfnkye><span class="decorative-asterisk" aria-hidden="true"><span class="asterisk-glyph">✳</span><svg class="asterisk-vector" viewBox="0 0 24 24" fill="none" focusable="false"><path d="M12 3v18M3 12h18M5.64 5.64l12.72 12.72M5.64 18.36L18.36 5.64" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></span></span><div data-astro-cid-fqxfnkye><h3 data-astro-cid-fqxfnkye>Lorem ipsum dolor.</h3><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore.</p></div></div> </section> <section class="holding-section wrap section-space" aria-labelledby="holding-title" data-astro-cid-fqxfnkye><div class="section-heading" data-reveal data-astro-cid-fqxfnkye><div data-astro-cid-fqxfnkye><span class="eyebrow" data-astro-cid-fqxfnkye><i class="tiny-slash" data-astro-cid-fqxfnkye></i> Lorem ipsum</span><h2 id="holding-title" data-astro-cid-fqxfnkye>Lorem ipsum<br data-astro-cid-fqxfnkye><span data-astro-cid-fqxfnkye>dolor sit amet.</span></h2></div><p class="section-support" data-astro-cid-fqxfnkye><span class="section-support-icon" aria-hidden="true" data-astro-cid-fqxfnkye><span class="decorative-asterisk" aria-hidden="true"><span class="asterisk-glyph">✳</span><svg class="asterisk-vector" viewBox="0 0 24 24" fill="none" focusable="false"><path d="M12 3v18M3 12h18M5.64 5.64l12.72 12.72M5.64 18.36L18.36 5.64" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></span></span><span class="section-support-copy" data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore.</span></p></div><div class="holding-links" data-astro-cid-fqxfnkye><a href="https://weehub.com.br/" data-reveal data-astro-cid-fqxfnkye><div data-astro-cid-fqxfnkye><span class="holding-brand" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/w-weehub.svg" alt="Weehub Inc." loading="lazy" data-astro-cid-fqxfnkye><span class="holding-brand-name" data-astro-cid-fqxfnkye>Weehub Inc.</span></span><span class="circle-arrow" aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p></a><a href="https://weenow.com.br/" data-reveal data-astro-cid-fqxfnkye><div data-astro-cid-fqxfnkye><span class="holding-brand" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/w-weenow.svg" alt="weenow" loading="lazy" data-astro-cid-fqxfnkye><span class="holding-brand-name" data-astro-cid-fqxfnkye>weenow</span></span><span class="circle-arrow" aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p></a><a href="https://weeup.com.br/" data-reveal data-astro-cid-fqxfnkye><div data-astro-cid-fqxfnkye><span class="holding-brand" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/brand/w-weeup.svg" alt="weeup" loading="lazy" data-astro-cid-fqxfnkye><span class="holding-brand-name" data-astro-cid-fqxfnkye>weeup</span></span><span class="circle-arrow" aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></div><p data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p></a></div></section> <section class="editorial wrap" aria-labelledby="editorial-title" data-astro-cid-fqxfnkye><a class="manifesto-card" href="https://iframe.videodelivery.net/d0901b867b827f66c0da0d43abda121c?controls=true&#38;primaryColor=%2300e874&#38;poster=https%3A%2F%2Fweepulse.com.br%2Fassets%2Fweepulse-v1%2Fimages%2Fthumb-manifesto.webp" target="_blank" rel="noopener noreferrer" data-manifesto-open data-reveal data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/images/thumb-manifesto.webp" alt="Manifesto WeePulse" loading="lazy" data-astro-cid-fqxfnkye><span class="eyebrow" data-astro-cid-fqxfnkye>Lorem ipsum dolor</span><span class="play-circle" aria-hidden="true" data-astro-cid-fqxfnkye>▶</span><h2 id="editorial-title" data-astro-cid-fqxfnkye>Lorem ipsum<br data-astro-cid-fqxfnkye>dolor sit?</h2><span class="manifesto-bottom" data-astro-cid-fqxfnkye>Consectetur adipiscing <span aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></span></a><a class="blog-card" href="https://weepulse.com.br/blog/" data-reveal data-astro-cid-fqxfnkye><span class="eyebrow" data-astro-cid-fqxfnkye>Lorem & ipsum</span><div class="blog-sculpture" aria-hidden="true" data-astro-cid-fqxfnkye><img src="assets/weepulse-v1/images/blog-glass-ribbons-mint.png" width="1536" height="1024" alt="" loading="lazy" decoding="async" data-astro-cid-fqxfnkye></div><div class="blog-copy" data-astro-cid-fqxfnkye><h3 data-astro-cid-fqxfnkye>Lorem ipsum<br data-astro-cid-fqxfnkye>dolor sit amet.</h3></div><span class="blog-bottom" data-astro-cid-fqxfnkye><span class="blog-bottom-copy" data-astro-cid-fqxfnkye>Lorem ipsum dolor sit amet, consectetur adipiscing elit. <strong data-astro-cid-fqxfnkye>Lorem ipsum</strong></span><span class="circle-arrow" aria-hidden="true" data-astro-cid-fqxfnkye>↗</span></span></a></section> </div> <section class="contact-section" id="contato" aria-labelledby="contact-title"> <div class="wrap contact-inner"> <div class="contact-copy" data-reveal> <div class="contact-copy-main">  <span class="eyebrow"><i class="status-dot"></i> Lorem ipsum dolor.</span> <h2 id="contact-title">Lorem ipsum<br><span>dolor sit <span class="contact-pulse-word">amet.</span></span></h2> <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore.</p>  <div class="contact-seal" aria-hidden="true"> <svg class="contact-seal-letters" viewBox="0 0 160 160" focusable="false"> <defs><path id="contact-seal-ring" d="M18 80a62 62 0 1 1 124 0a62 62 0 1 1-124 0"></path></defs> <text fill="currentColor"><textPath href="#contact-seal-ring" startOffset="9.8" textLength="370" lengthAdjust="spacing">SUA BIG TECH · EM PRODUTOS TOTVS · </textPath></text> </svg> <svg class="contact-seal-letters contact-seal-letters-mobile mobile-seal-letters" viewBox="0 0 160 160" focusable="false"> <defs><path id="contact-seal-ring-mobile" d="M18 80a62 62 0 1 1 124 0a62 62 0 1 1-124 0"></path></defs> <text fill="currentColor" textLength="386" lengthAdjust="spacing"><textPath href="#contact-seal-ring-mobile" startOffset="1.8" textLength="386" lengthAdjust="spacing">SUA BIG TECH · EM PRODUTOS TOTVS ·</textPath></text> </svg> <img src="assets/weepulse-v1/brand/selo-weepulse.svg" width="66" height="66" alt=""> </div> </div> <div class="contact-signature"><span aria-hidden="true">/</span> Estratégia, tecnologia e pessoas para o seu próximo nível.</div> </div> <span id="fale-com-especialista" class="legacy-anchor" aria-hidden="true"></span> <form class="contact-form" id="lead-contato" name="lead-contato" aria-label="Formulário de contato" action="https://webto.salesforce.com/servlet/servlet.WebToLead?encoding=UTF-8&orgId=00DHr0000074EHw" method="POST" data-reveal> <input type="hidden" name="oid" value="00DHr0000074EHw"> <input type="hidden" name="retURL" value="https://weepulse.com.br/obrigado/"> <input type="hidden" name="lead_source" value="Orgânico"> <input type="hidden" name="00NHr00001Bsy1e" value="Formulário"> <input type="hidden" name="00NbL000001oTvt"> <input type="hidden" name="00NbL000001oTz7"> <input type="hidden" name="00NbL000001oIaj"> <input type="hidden" name="00NbL000001oUFF"> <input type="hidden" name="00NbL000001oklV"> <div class="form-grid"> <label class="field"><span>Nome <b aria-hidden="true">*</b></span><input name="first_name" maxlength="40" type="text" autocomplete="given-name" placeholder="Seu nome" required></label> <label class="field"><span>Sobrenome <b aria-hidden="true">*</b></span><input name="last_name" maxlength="80" type="text" autocomplete="family-name" placeholder="Seu sobrenome" required></label> <label class="field"><span>E-mail corporativo <b aria-hidden="true">*</b></span><input name="email" maxlength="80" type="email" autocomplete="email" placeholder="nome@empresa.com.br" required></label> <label class="field"><span>Celular com DDD <b aria-hidden="true">*</b></span><input name="mobile" maxlength="40" type="tel" autocomplete="tel" inputmode="tel" placeholder="(11) 99999-9999" required></label> <label class="field field-wide"><span>Empresa <b aria-hidden="true">*</b></span><input name="company" maxlength="40" type="text" autocomplete="organization" placeholder="Nome da sua empresa" required></label> <div class="field select-field" data-custom-select> <label id="contact-method-label" for="contact-method">Preferência de contato <b aria-hidden="true">*</b></label> <select id="contact-method" name="00NbL000004f1Nd" required><option value="" disabled selected>Como prefere conversar?</option><option value="Telefone">Telefone</option><option value="WhatsApp">WhatsApp</option><option value="E-mail">E-mail</option></select> <button class="select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="contact-method-options" aria-labelledby="contact-method-label contact-method-value" hidden><span id="contact-method-value" class="select-value">Como prefere conversar?</span><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></button> <div class="select-options" id="contact-method-options" role="listbox" aria-labelledby="contact-method-label" hidden><button type="button" role="option" data-value="Telefone" aria-selected="false">Telefone</button><button type="button" role="option" data-value="WhatsApp" aria-selected="false">WhatsApp</button><button type="button" role="option" data-value="E-mail" aria-selected="false">E-mail</button></div> <small class="select-error" id="contact-method-error" hidden>Selecione uma opção.</small> </div> <div class="field select-field" data-custom-select> <label id="product-interest-label" for="product-interest">Produto de interesse <b aria-hidden="true">*</b></label> <select id="product-interest" name="00NHr00001BsyAY" required><option value="" disabled selected>Selecione um produto</option><option value="TOTVS Protheus">TOTVS Protheus</option><option value="TOTVS RM">TOTVS RM</option><option value="TOTVS Datasul">TOTVS Datasul</option><option value="TOTVS Fluig">TOTVS Fluig</option></select> <button class="select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="product-interest-options" aria-labelledby="product-interest-label product-interest-value" hidden><span id="product-interest-value" class="select-value">Selecione um produto</span><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></button> <div class="select-options" id="product-interest-options" role="listbox" aria-labelledby="product-interest-label" hidden><button type="button" role="option" data-value="TOTVS Protheus" aria-selected="false">TOTVS Protheus</button><button type="button" role="option" data-value="TOTVS RM" aria-selected="false">TOTVS RM</button><button type="button" role="option" data-value="TOTVS Datasul" aria-selected="false">TOTVS Datasul</button><button type="button" role="option" data-value="TOTVS Fluig" aria-selected="false">TOTVS Fluig</button></div> <small class="select-error" id="product-interest-error" hidden>Selecione um produto.</small> </div> <label class="field field-wide"><span>Como podemos ajudar? <b aria-hidden="true">*</b></span><textarea name="00NHr00000ueQ8U" rows="4" placeholder="Conte um pouco sobre seu desafio" required></textarea></label> </div> <div class="form-footer"> <button class="button button-dark form-submit" type="submit"><em class="button-label">Enviar mensagem</em><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 18 18 6M6 6h12v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></span></button> <p class="form-privacy"><span class="form-privacy-icon" aria-hidden="true">i</span><span class="form-privacy-copy"><span>Seus dados serão usados para</span> <span>responder ao seu contato.</span> <a href="https://weepulse.com.br/politicas/">Política de Privacidade ↗</a></span></p> </div> </form> </div> </section> </main> <footer class="site-footer wrap"> <div class="footer-top"><a href="index.html#topo"><img src="assets/weepulse-v1/brand/logo-weepulse.svg" alt="WeePulse" width="194" height="46"></a><p>Lorem ipsum dolor sit amet.</p><a class="back-top" href="index.html#topo" aria-label="Voltar ao topo">↑</a></div> <div class="footer-main"> <div><a class="footer-location" href="https://www.google.com/maps/search/?api=1&#38;query=Centro%20Empresarial%20Na%C3%A7%C3%B5es%20Unidas%2C%20Av.%20das%20Na%C3%A7%C3%B5es%20Unidas%2C%2012901%2C%20Torre%20Norte%2C%20S%C3%A3o%20Paulo%2C%20SP%2C%2004578-910" target="_blank" rel="noopener noreferrer" title="Abrir no Google Maps (nova aba)"><span class="eyebrow">Encontre a gente</span><p>Centro Empresarial Nações Unidas<br>Av. das Nações Unidas, 12901 - Torre Norte, 4º andar<br>São Paulo, SP · 04578-910</p></a></div> <nav aria-label="Links de rodapé"><a href="index.html#solucoes">Serviços</a><a href="https://weepulse.com.br/cases/">Cases</a><a href="https://weepulse.com.br/blog/">Insights</a><a href="https://weepulse.com.br/brandbook/">Brandbook</a><a href="https://weehub.com.br/trabalhe-aqui/?empresa=weepulse">Trabalhe aqui</a></nav> <nav class="footer-social" aria-label="Redes sociais"> <a href="https://www.instagram.com/weepulse.tech/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="18" height="18" rx="5"></rect><circle cx="12" cy="12" r="4"></circle><circle cx="17.4" cy="6.7" r=".8" fill="currentColor" stroke="none"></circle></svg><span>Instagram ↗</span></a> <a href="https://www.linkedin.com/company/weepulse-inc/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2.5" y="2.5" width="19" height="19" rx="3.5"></rect><circle cx="7.5" cy="8" r=".8" fill="currentColor" stroke="none"></circle><path d="M7.5 11v6.5M11.5 17.5V11m0 2.3c.4-1.6 1.4-2.4 2.9-2.4 1.9 0 2.6 1.1 2.6 3.2v3.4"></path></svg><span>LinkedIn ↗</span></a> <a href="https://www.youtube.com/@weepulse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2.5" y="5.5" width="19" height="13" rx="4"></rect><path d="m10 9 5 3-5 3V9Z"></path></svg><span>YouTube ↗</span></a> </nav> </div> <div class="footer-bottom"><span>© 2026 WeePulse. Todos os direitos reservados.</span><a href="https://weepulse.com.br/politicas/">Política de Privacidade</a><a href="https://weehub.com.br/">Powered by Weehub Inc.</a></div> </footer> <dialog class="manifesto-lightbox" aria-label="Vídeo do manifesto WeePulse" data-manifesto-lightbox data-astro-cid-fqxfnkye> <button class="manifesto-lightbox-close" type="button" aria-label="Fechar vídeo" data-manifesto-close data-astro-cid-fqxfnkye>×</button> <div class="manifesto-lightbox-video" data-astro-cid-fqxfnkye><iframe title="Manifesto WeePulse" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen data-astro-cid-fqxfnkye></iframe></div> </dialog> </div> <script type="module" src="_astro/home.astro_astro_type_script_index_0_lang.0Ab70Iri.js"></script> <script type="module" src="_astro/home.astro_astro_type_script_index_1_lang.C5RWlZFA.js"></script> <script type="module" src="_astro/home.astro_astro_type_script_index_2_lang.BnvinfZo.js"></script> <script type="module" src="_astro/home.astro_astro_type_script_index_3_lang.CQOUlUSt.js"></script> <button class="mobile-back-to-top" type="button" aria-label="Voltar ao topo" data-mobile-back-to-top hidden disabled data-astro-cid-scylmpgr> <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" data-astro-cid-scylmpgr><path d="m6 14 6-6 6 6M12 8v12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" data-astro-cid-scylmpgr></path></svg> </button>   <script type="module">const e=document.querySelector("[data-mobile-back-to-top]");if(e&&document.querySelectorAll("[data-mobile-back-to-top]").length===1){const s=window.matchMedia("(max-width: 767px)"),m=window.matchMedia("(prefers-reduced-motion: reduce)"),c=e.dataset.suppressLegacyBrandbook==="true";c&&(document.body.dataset.mobileBackToTopBrandbook="");const t=()=>{const n=!!document.querySelector('dialog[open], [data-menu-toggle][aria-expanded="true"], .main-nav.is-open, .insights-mobile-menu[open]'),o=document.querySelector("#wp-consent")?.getBoundingClientRect(),a=!!(o&&o.height>0&&o.bottom>0&&o.top<window.innerHeight),l=s.matches&&window.scrollY>400&&!n;e.hidden=!l,e.disabled=!l,e.dataset.consentOpen=String(a),a&&o?e.style.bottom=`max(calc(${Math.ceil(o.height+16)}px + env(safe-area-inset-bottom)), ${Math.ceil(o.height+16)}px)`:e.style.removeProperty("bottom")},i=()=>{if(m.matches){const n=document.documentElement.style.scrollBehavior;document.documentElement.style.scrollBehavior="auto",window.scrollTo(0,0),document.documentElement.style.scrollBehavior=n;return}window.scrollTo({top:0,behavior:"smooth"})},r=new MutationObserver(t),d=()=>t();e.addEventListener("click",i),window.addEventListener("scroll",t,{passive:!0}),window.addEventListener("pageshow",d),s.addEventListener("change",t),r.observe(document.body,{childList:!0,subtree:!0,attributes:!0,attributeFilter:["open","class","style"]}),window.addEventListener("pagehide",n=>{n.persisted||(r.disconnect(),window.removeEventListener("scroll",t),window.removeEventListener("pageshow",d),s.removeEventListener("change",t),e.removeEventListener("click",i),c&&delete document.body.dataset.mobileBackToTopBrandbook)},{once:!0}),t()}</script></body></html>

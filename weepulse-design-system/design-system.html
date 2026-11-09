@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#071c28">
+<title>WeePulse Design System</title>
+<link rel="icon" href="assets/overview/assets/weepulse-v1/brand/selo-weepulse.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<!-- Source stylesheets, reused as-is -->
+<link rel="stylesheet" href="assets/overview/_astro/readability.CRXs-8Lu.css">
+<link rel="stylesheet" href="assets/overview/_astro/SiteHeader.DwEFhpvG.css">
+<link rel="stylesheet" href="assets/overview/_astro/index@_@astro.BFYaFyfh.css">
+<style>
+/* Catalog shell: only routing/layout overrides. Visual styles come from the source CSS above. */
+html,body{height:100%}
+body.ds-catalog{display:flex;flex-direction:column;min-height:100vh;background:var(--deep);overflow:hidden}
+.ds-catalog .ds-bar{position:relative;flex:0 0 auto;height:114px;background:var(--hero-background,var(--deep));color:#fff}
+.ds-catalog .site-header{position:absolute}
+.ds-catalog .site-header .main-nav{display:flex}
+.ds-catalog .site-header .ds-tab.is-active{font-weight:700}
+.ds-catalog .site-header .ds-tab.is-disabled{opacity:.45;pointer-events:none;cursor:not-allowed}
+.ds-catalog .ds-views{position:relative;flex:1 1 auto;min-height:0}
+.ds-catalog .ds-view{position:absolute;inset:0;display:none}
+.ds-catalog .ds-view.is-active{display:block}
+.ds-catalog .ds-view iframe{display:block;width:100%;height:100%;border:0;background:var(--paper)}
+.ds-catalog .ds-pending{display:grid;place-items:center;height:100%;color:#f4fbf8;font:500 18px/1.4 Raleway,system-ui,sans-serif;letter-spacing:-.02em}
+@media(max-width:620px){.ds-catalog .ds-bar{height:76px}}
+</style>
+</head>
+<body class="ds-catalog home-page">
+<div class="ds-bar">
+<header class="site-header" data-header data-sticky-header data-astro-cid-wp3bg7ze> <a class="brand" href="#overview" aria-label="WeePulse Design System" data-astro-cid-wp3bg7ze><img src="assets/overview/assets/weepulse-v1/brand/footer-weepulse-logo.svg" data-header-logo data-scroll-src="assets/overview/assets/weepulse-v1/brand/logo-weepulse.svg" alt="WeePulse" width="184" height="44" data-astro-cid-wp3bg7ze></a> <nav class="main-nav" aria-label="Navegação principal" id="main-nav" data-astro-cid-wp3bg7ze> <a class="ds-tab is-active" href="#overview" data-view="overview" aria-current="page" data-astro-cid-wp3bg7ze>Overview</a><a class="ds-tab" href="#components" data-view="components" data-astro-cid-wp3bg7ze>Components</a> </nav>   </header>
+</div>
+<main class="ds-views" id="ds-views">
+  <section class="ds-view is-active" id="overview" aria-label="Overview">
+    <iframe src="assets/overview/index.html" title="WeePulse Design System — Overview" loading="eager"></iframe>
+  </section>
+  <section class="ds-view" id="components" aria-label="Components" hidden>
+    <iframe src="assets/overview/components.html" title="WeePulse Design System — Components" loading="lazy"></iframe>
+  </section>
+</main>
+<script>
+(function(){
+  var tabs=[].slice.call(document.querySelectorAll('.ds-tab'));
+  var views={overview:document.getElementById('overview'),components:document.getElementById('components')};
+  var enabled={overview:true,components:true};
+  function show(view,push){
+    if(!views[view]||!enabled[view]) view='overview';
+    Object.keys(views).forEach(function(k){
+      var on=k===view; views[k].classList.toggle('is-active',on); views[k].hidden=!on;
+    });
+    tabs.forEach(function(t){
+      var on=t.dataset.view===view; t.classList.toggle('is-active',on);
+      if(on) t.setAttribute('aria-current','page'); else t.removeAttribute('aria-current');
+    });
+    if(push && location.hash!=='#'+view) history.pushState(null,'','#'+view);
+  }
+  tabs.forEach(function(t){
+    t.addEventListener('click',function(e){
+      e.preventDefault(); if(t.classList.contains('is-disabled')) return; show(t.dataset.view,true);
+    });
+  });
+  window.addEventListener('popstate',function(){ show((location.hash||'#overview').slice(1),false); });
+  show((location.hash||'#overview').slice(1),false);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "frameCount": 97,
+  "centerFrame": 48,
+  "fps": 24,
+  "sourceSize": {
+    "width": 1928,
+    "height": 1072
+  },
+  "crop": [
+    680,
+    0,
+    1870,
+    1072
+  ],
+  "sizes": {
+    "desktop": {
+      "width": 1066,
+      "height": 960
+    },
+    "mobile": {
+      "width": 688,
+      "height": 620
+    }
+  }
+}
